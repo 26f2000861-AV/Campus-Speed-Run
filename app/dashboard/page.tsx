@@ -119,7 +119,7 @@ function NotificationDrawer({ items, onClose }: { items: NotificationItem[]; onC
         aria-labelledby="notif-heading"
         initial={{ x: '100%' }}
         animate={{ x: 0 }}
-        exit={{ x: '100%' }}
+        exit={{ x: '100%', transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } }}
         transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
         className="relative w-full max-w-md h-full bg-ink-900 border-l border-line shadow-2xl flex flex-col"
       >

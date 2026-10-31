@@ -22,6 +22,8 @@ uniform float u_time;
 uniform vec2 u_mouse;
 uniform float u_cell;
 uniform float u_dpr;
+// Brand pulse: origin (px) in xy, seconds since it started in z (< 0 = none), strength in w.
+uniform vec4 u_pulse;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 
@@ -51,6 +53,15 @@ void main() {
     glow = 0.42 * exp(-d * d);
   }
 
+  // The pulse: one ring of light travelling outward from the logo's plus, fading as it goes.
+  if (u_pulse.z >= 0.0) {
+    float d = distance(center, u_pulse.xy);
+    float r = u_pulse.z * u_res.y * 0.62;
+    float w = u_cell * 7.0;
+    float x = (d - r) / w;
+    glow += u_pulse.w * 0.75 * exp(-x * x) * exp(-u_pulse.z * 0.85);
+  }
+
   // Ambient falloff toward the bottom edge.
   float ambient = mix(0.55, 1.0, smoothstep(0.0, 0.7, fc.y / u_res.y));
 
@@ -77,9 +88,21 @@ function compile(gl: WebGLRenderingContext, type: number, src: string): WebGLSha
   return s;
 }
 
-export default function ParticleField({ className = '' }: { className?: string }) {
+/** Event the brand pulse listens for; see `emitPulse` in components/motion.tsx. */
+export const PULSE_EVENT = 'cp:pulse';
+export type PulseDetail = { x: number; y: number; strength?: number };
+
+/**
+ * `hero` runs at full frame rate with cursor tracking (home, sign-in).
+ * `ambient` is the dim band behind work screens: 20 fps and no cursor work.
+ */
+export default function ParticleField({ className = '', mode = 'hero' }: { className?: string; mode?: 'hero' | 'ambient' }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fallbackRef = useRef<HTMLDivElement>(null);
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -115,12 +138,15 @@ export default function ParticleField({ className = '' }: { className?: string }
     const uMouse = gl.getUniformLocation(program, 'u_mouse');
     const uCell = gl.getUniformLocation(program, 'u_cell');
     const uDpr = gl.getUniformLocation(program, 'u_dpr');
+    const uPulse = gl.getUniformLocation(program, 'u_pulse');
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     const coarse = window.matchMedia('(pointer: coarse)').matches;
     let dpr = 1;
     let cell = 9;
     const mouse = { x: -1, y: -1, tx: -1, ty: -1 };
+    const pulse = { x: 0, y: 0, start: -1, strength: 1 };
+    const PULSE_SECONDS = 4.5;
 
     const resize = () => {
       dpr = Math.min(window.devicePixelRatio || 1, coarse ? 1.25 : 1.5);
@@ -143,6 +169,12 @@ export default function ParticleField({ className = '' }: { className?: string }
       gl.uniform2f(uMouse, mouse.x, mouse.y);
       gl.uniform1f(uCell, cell);
       gl.uniform1f(uDpr, dpr);
+      let pulseT = -1;
+      if (pulse.start >= 0) {
+        pulseT = (performance.now() - pulse.start) / 1000;
+        if (pulseT > PULSE_SECONDS) pulse.start = pulseT = -1;
+      }
+      gl.uniform4f(uPulse, pulse.x, pulse.y, pulseT, pulse.strength);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -152,10 +184,11 @@ export default function ParticleField({ className = '' }: { className?: string }
     let last = 0;
     let visible = true;
     const start = performance.now() - 40_000; // start mid-flow, not at t=0
-    const frameMs = coarse ? 1000 / 30 : 0;
 
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
+      // A pulse in flight always gets full rate so the ring stays smooth.
+      const frameMs = pulse.start >= 0 ? 0 : modeRef.current === 'ambient' ? 1000 / 20 : coarse ? 1000 / 30 : 0;
       if (frameMs && now - last < frameMs) return;
       last = now;
       draw((now - start) / 1000);
@@ -171,6 +204,10 @@ export default function ParticleField({ className = '' }: { className?: string }
 
     const onMove = (e: PointerEvent) => {
       if (e.pointerType !== 'mouse') return;
+      if (modeRef.current === 'ambient') {
+        mouse.tx = mouse.ty = mouse.x = mouse.y = -1;
+        return;
+      }
       const r = canvas.getBoundingClientRect();
       mouse.tx = (e.clientX - r.left) * dpr;
       mouse.ty = (r.bottom - e.clientY) * dpr; // GL origin is bottom-left
@@ -181,6 +218,16 @@ export default function ParticleField({ className = '' }: { className?: string }
     const onResize = () => {
       resize();
       if (reduced.matches) draw(40);
+    };
+    // Reduced motion keeps the still field; the pulse is decorative, so it is skipped.
+    const onPulse = (e: Event) => {
+      const d = (e as CustomEvent<PulseDetail>).detail;
+      if (!d || reduced.matches) return;
+      const r = canvas.getBoundingClientRect();
+      pulse.x = (d.x - r.left) * dpr;
+      pulse.y = (r.bottom - d.y) * dpr;
+      pulse.strength = d.strength ?? 1;
+      pulse.start = performance.now();
     };
 
     resize();
@@ -193,6 +240,7 @@ export default function ParticleField({ className = '' }: { className?: string }
     io.observe(canvas);
     window.addEventListener('resize', onResize);
     window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener(PULSE_EVENT, onPulse);
     document.documentElement.addEventListener('pointerleave', onLeave);
     document.addEventListener('visibilitychange', run);
     reduced.addEventListener('change', run);
@@ -202,6 +250,7 @@ export default function ParticleField({ className = '' }: { className?: string }
       io.disconnect();
       window.removeEventListener('resize', onResize);
       window.removeEventListener('pointermove', onMove);
+      window.removeEventListener(PULSE_EVENT, onPulse);
       document.documentElement.removeEventListener('pointerleave', onLeave);
       document.removeEventListener('visibilitychange', run);
       reduced.removeEventListener('change', run);

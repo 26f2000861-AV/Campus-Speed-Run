@@ -22,7 +22,7 @@ export default function SiteBackdrop() {
           WebkitMaskImage: hero ? undefined : 'linear-gradient(to bottom, black 0%, rgba(0,0,0,0.5) 35%, transparent 70%)',
         }}
       >
-        <ParticleField className="absolute inset-0" />
+        <ParticleField className="absolute inset-0" mode={hero ? 'hero' : 'ambient'} />
       </div>
       {/* Soft ambient light behind the field and an edge vignette for depth. */}
       <div className="absolute inset-0 bg-[radial-gradient(60%_50%_at_70%_20%,rgba(139,155,180,0.10),transparent_70%)]" />

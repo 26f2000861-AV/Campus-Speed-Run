@@ -447,9 +447,9 @@ export default function StudentSubmitPage() {
                       >
                         <span className="block h-1 rounded-full bg-white/[0.08] overflow-hidden">
                           <motion.span
-                            className="block h-full rounded-full bg-fg"
+                            className="block h-full rounded-full bg-fg origin-left"
                             initial={false}
-                            animate={{ width: done || current ? '100%' : '0%' }}
+                            animate={{ scaleX: done || current ? 1 : 0 }}
                             transition={{ duration: 0.5, ease: EASE_OUT }}
                           />
                         </span>
@@ -695,7 +695,12 @@ export default function StudentSubmitPage() {
                             <span className="font-mono tabular-nums">{uploadPct}%</span>
                           </div>
                           <div className="mt-1.5 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                            <motion.div className="h-full bg-fg rounded-full" animate={{ width: `${uploadPct}%` }} transition={{ duration: 0.2 }} />
+                            <motion.div
+                              className="h-full bg-fg rounded-full origin-left"
+                              initial={{ scaleX: 0 }}
+                              animate={{ scaleX: uploadPct / 100 }}
+                              transition={{ duration: 0.2, ease: 'easeOut' }}
+                            />
                           </div>
                         </div>
                       )}

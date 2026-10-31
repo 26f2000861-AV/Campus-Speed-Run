@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { UserRole, DepartmentCode } from '@/lib/types';
 import { useAuth, homePathForRole } from '@/lib/auth-context';
 import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Lock, Mail, User } from 'lucide-react';
 import Logo from '@/components/Logo';
-import { EASE_OUT } from '@/components/motion';
+import { EASE_OUT, useBrandPulse } from '@/components/motion';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -41,6 +41,10 @@ function LoginFormContent() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // One beat from the card's logo as it lands.
+  const logoRef = useRef<HTMLDivElement>(null);
+  useBrandPulse(logoRef, { delay: 550 });
 
   // Already signed in (server-verified via /api/auth/me): go to the role's home (spec 01 §4).
   useEffect(() => {
@@ -143,7 +147,7 @@ function LoginFormContent() {
         transition={{ duration: 0.7, ease: EASE_OUT }}
         className="cs-glass w-full max-w-[400px] p-6 sm:p-8"
       >
-        <div className="group flex justify-center">
+        <div ref={logoRef} className="group flex justify-center">
           <Logo size="md" />
         </div>
 

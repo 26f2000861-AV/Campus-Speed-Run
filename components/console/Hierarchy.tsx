@@ -136,18 +136,19 @@ export function EscalationChain({
               </dl>
 
               {/* Share of this tier's queue that is waiting vs being worked on */}
-              <div className="mt-3 h-1.5 rounded-full bg-white/[0.05] overflow-hidden flex" aria-hidden="true">
+              {/* Two stacked transform-only layers: yellow covers waiting + working, red covers waiting. */}
+              <div className="mt-3 h-1.5 rounded-full bg-white/[0.05] overflow-hidden relative" aria-hidden="true">
                 <motion.span
-                  className="h-full bg-bad"
-                  initial={{ width: 0 }}
-                  animate={{ width: s.open ? `${(s.waiting / s.open) * 100}%` : 0 }}
-                  transition={{ duration: 0.8, delay: 0.2 + i * 0.1, ease: EASE_OUT }}
+                  className="absolute inset-0 bg-warn origin-left"
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: s.open ? (s.waiting + s.working) / s.open : 0 }}
+                  transition={{ duration: 0.7, delay: 0.15 + i * 0.08, ease: EASE_OUT }}
                 />
                 <motion.span
-                  className="h-full bg-warn"
-                  initial={{ width: 0 }}
-                  animate={{ width: s.open ? `${(s.working / s.open) * 100}%` : 0 }}
-                  transition={{ duration: 0.8, delay: 0.3 + i * 0.1, ease: EASE_OUT }}
+                  className="absolute inset-0 bg-bad origin-left"
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: s.open ? s.waiting / s.open : 0 }}
+                  transition={{ duration: 0.7, delay: 0.15 + i * 0.08, ease: EASE_OUT }}
                 />
               </div>
 

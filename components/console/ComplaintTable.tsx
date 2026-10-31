@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDownUp, ChevronLeft, ChevronRight, Inbox, MapPin, Search, ShieldAlert, X } from 'lucide-react';
 import type { ComplaintGroupView } from '@/lib/types';
 import { EmptyState, SlaChip, StatusBadge, TIER_LABEL, UrgencyPill, formatDate, humanize } from '@/components/ui';
@@ -165,10 +165,16 @@ export default function ComplaintTable({
                   </th>
                 </tr>
               </thead>
-                <motion.tbody key={`${current}-${sort}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
+                <motion.tbody key={`${current}-${sort}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+                  {/* A complaint that leaves the queue (resolved, forwarded) fades out and
+                      the rows below slide up into its place. */}
+                  <AnimatePresence initial={false}>
                   {slice.map((r) => (
-                    <tr
+                    <motion.tr
                       key={r.tracking_id}
+                      layout="position"
+                      exit={{ opacity: 0, transition: { duration: 0.16 } }}
+                      transition={{ layout: { duration: 0.28, ease: EASE_OUT } }}
                       onClick={(e) => onOpen(r, e.currentTarget.querySelector('button'))}
                       className="group border-b border-line last:border-0 cursor-pointer transition-colors hover:bg-white/[0.025]"
                     >
@@ -215,20 +221,24 @@ export default function ComplaintTable({
                           Open
                         </button>
                       </td>
-                    </tr>
+                    </motion.tr>
                   ))}
+                  </AnimatePresence>
                 </motion.tbody>
             </table>
           </div>
 
           {/* Mobile cards */}
           <ul className="md:hidden divide-y divide-line">
+            <AnimatePresence initial={false}>
             {slice.map((r, i) => (
               <motion.li
                 key={r.tracking_id}
+                layout="position"
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: i * 0.03, ease: EASE_OUT }}
+                exit={{ opacity: 0, transition: { duration: 0.16 } }}
+                transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.2), ease: EASE_OUT }}
               >
                 <button type="button" onClick={(e) => onOpen(r, e.currentTarget)} className="w-full text-left p-4 active:bg-white/[0.03]">
                   <span className="flex items-center justify-between gap-2">
@@ -247,6 +257,7 @@ export default function ComplaintTable({
                 </button>
               </motion.li>
             ))}
+            </AnimatePresence>
           </ul>
         </>
       )}

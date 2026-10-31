@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { animate, motion, useReducedMotion } from 'framer-motion';
 import { EASE_OUT } from '@/components/motion';
 import { TONE_DOT, TONE_TEXT, type Tone } from '@/components/ui';
@@ -107,16 +107,29 @@ export function ActivityRings({
   );
 }
 
-/** Animated number for metric cards; instant under reduced motion. */
+/**
+ * Metric number. Counts up once when data first arrives, then tweens from the
+ * previous value, so a refresh after an action shows what changed (18 → 19)
+ * instead of dropping every figure back to zero. Instant under reduced motion.
+ */
 export function CountUp({ value }: { value: number }) {
   const reduce = useReducedMotion();
   const [shown, setShown] = useState(reduce ? value : 0);
+  const from = useRef(0);
   useEffect(() => {
     if (reduce) {
       setShown(value);
+      from.current = value;
       return;
     }
-    const controls = animate(0, value, { duration: 0.9, ease: EASE_OUT, onUpdate: (v) => setShown(Math.round(v)) });
+    const start = from.current;
+    from.current = value;
+    if (start === value) return;
+    const controls = animate(start, value, {
+      duration: start === 0 ? 0.7 : 0.45,
+      ease: EASE_OUT,
+      onUpdate: (v) => setShown(Math.round(v)),
+    });
     return () => controls.stop();
   }, [value, reduce]);
   return <>{shown}</>;
@@ -169,12 +182,12 @@ export function ShareBars({ rows, loading = false }: { rows: Array<{ label: stri
             <span className="font-mono tabular-nums text-fg">{loading ? '–' : r.count}</span>
           </div>
           <div className="mt-1.5 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
+            {/* Grows by transform, not width, so the row never reflows while it fills. */}
             <motion.div
-              className="h-full rounded-full bg-steel"
-              initial={{ width: 0 }}
-              whileInView={{ width: loading ? 0 : `${(r.count / max) * 100}%` }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.9, delay: i * 0.05, ease: EASE_OUT }}
+              className="h-full rounded-full bg-steel origin-left"
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: loading ? 0 : r.count / max }}
+              transition={{ duration: 0.7, delay: Math.min(i * 0.05, 0.25), ease: EASE_OUT }}
             />
           </div>
         </li>

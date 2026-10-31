@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { ComplaintPriority, ComplaintStatus } from '@/lib/types';
 
@@ -117,9 +117,18 @@ export const STATUS_LABEL: Record<ComplaintStatus, string> = {
 
 export function StatusBadge({ status }: { status: string }) {
   const tone = statusTone(status);
+  // Settles in only when the status changes under the viewer (e.g. after Acknowledge),
+  // never on first render, so lists don't flicker on load.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+  }, []);
   return (
     <span
-      className={`inline-flex items-center gap-1.5 max-w-full h-6 px-2 rounded-md border text-xs font-medium whitespace-nowrap ${TONE_BADGE[tone]} ${TONE_TEXT[tone]}`}
+      key={status}
+      className={`inline-flex items-center gap-1.5 max-w-full h-6 px-2 rounded-md border text-xs font-medium whitespace-nowrap ${TONE_BADGE[tone]} ${TONE_TEXT[tone]} ${
+        mounted.current ? 'status-swap' : ''
+      }`}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${TONE_DOT[tone]}`} aria-hidden="true" />
       <span>{STATUS_LABEL[status as ComplaintStatus] ?? status}</span>

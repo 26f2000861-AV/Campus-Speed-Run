@@ -6,7 +6,7 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 import { ArrowRight, ArrowDown, EyeOff, Gauge, Search, ShieldCheck, Timer } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import Logo from '@/components/Logo';
-import { EASE_OUT, Reveal } from '@/components/motion';
+import { EASE_OUT, useBrandPulse } from '@/components/motion';
 
 const HEADLINE = [
   ['Your', 'Campus.', 'Your', 'Voice.'],
@@ -40,6 +40,9 @@ const CHAIN = [
 export default function HomePage() {
   const { user } = useAuth();
   const heroRef = useRef<HTMLElement>(null);
+  const logoRef = useRef<HTMLDivElement>(null);
+  // Focal moment: the plus beats as the logo lands and a wave crosses the field.
+  useBrandPulse(logoRef, { delay: 650, repeatMs: 10_000 });
   const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] });
   const heroY = useTransform(scrollYProgress, [0, 1], [0, 80]);
   const heroOpacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
@@ -63,9 +66,10 @@ export default function HomePage() {
             aria-hidden="true"
           />
           <motion.div
+            ref={logoRef}
             initial={{ opacity: 0, scale: 0.96, filter: 'blur(8px)' }}
             animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-            transition={{ duration: 1, ease: EASE_OUT }}
+            transition={{ duration: 0.8, ease: EASE_OUT }}
             className="group inline-flex"
           >
             <Logo size="xl" />
@@ -133,9 +137,9 @@ export default function HomePage() {
           href="#how"
           aria-label="Scroll to how it works"
           initial={{ opacity: 0 }}
-          animate={{ opacity: 1, y: [0, 6, 0] }}
-          transition={{ opacity: { delay: 1.8 }, y: { duration: 2.4, repeat: Infinity, ease: 'easeInOut' } }}
-          className="hidden sm:flex absolute bottom-8 left-1/2 -translate-x-1/2 w-10 h-10 items-center justify-center rounded-full border border-white/10 text-fg-muted hover:text-fg"
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.6, duration: 0.5 }}
+          className="hidden sm:flex absolute bottom-8 left-1/2 -translate-x-1/2 w-10 h-10 items-center justify-center rounded-full border border-white/10 text-fg-muted transition-[color,transform,border-color] duration-200 hover:text-fg hover:border-white/25 hover:translate-y-0.5"
         >
           <ArrowDown className="w-4 h-4" aria-hidden="true" />
         </motion.a>
@@ -144,14 +148,20 @@ export default function HomePage() {
       {/* How it works */}
       <section id="how" className="relative scroll-mt-20 bg-gradient-to-b from-transparent via-ink-950/90 to-ink-950">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
-          <Reveal className="max-w-xl">
-            <p className="cs-label">How it works</p>
-            <h2 className="mt-2 text-3xl sm:text-4xl font-semibold">From report to resolved, in the open.</h2>
-          </Reveal>
+          <h2 className="max-w-xl text-3xl sm:text-4xl font-semibold">From report to resolved, in the open.</h2>
           <ol className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-4">
             {STEPS.map((s, i) => (
-              <Reveal key={s.title} delay={i * 0.08}>
-                <li className="cs-glass h-full p-6 transition-[border-color,transform] duration-300 hover:-translate-y-1 hover:border-white/15">
+              // The three steps arrive in order because they are an order. They start
+              // partly visible, so the content still reads if scripts never run.
+              <motion.li
+                key={s.title}
+                initial={{ opacity: 0.35, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                whileHover={{ y: -4 }}
+                viewport={{ once: true, margin: '-60px' }}
+                transition={{ duration: 0.55, delay: i * 0.1, ease: EASE_OUT }}
+                className="cs-glass h-full p-6 transition-[border-color] duration-300 hover:border-white/15"
+              >
                   <div className="flex items-center justify-between">
                     <span className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] inline-flex items-center justify-center">
                       <s.icon className="w-5 h-5" aria-hidden="true" />
@@ -160,8 +170,7 @@ export default function HomePage() {
                   </div>
                   <h3 className="mt-6 text-lg font-semibold">{s.title}</h3>
                   <p className="mt-2 text-sm text-fg-muted leading-relaxed">{s.body}</p>
-                </li>
-              </Reveal>
+              </motion.li>
             ))}
           </ol>
         </div>
@@ -170,11 +179,10 @@ export default function HomePage() {
       {/* Escalation chain */}
       <section className="relative bg-ink-950">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-20 sm:pb-28">
-          <Reveal className="cs-card p-6 sm:p-10">
+          <div className="cs-card p-6 sm:p-10">
             <div className="grid lg:grid-cols-[1fr_1.4fr] gap-10 items-center">
               <div>
-                <p className="cs-label">Accountability</p>
-                <h2 className="mt-2 text-2xl sm:text-3xl font-semibold">Nothing sits in a queue forever.</h2>
+                <h2 className="text-2xl sm:text-3xl font-semibold">Nothing sits in a queue forever.</h2>
                 <p className="mt-3 text-fg-muted leading-relaxed max-w-md">
                   If a tier doesn&apos;t act within 72 hours, the complaint escalates on its own — all the way to
                   administration.
@@ -200,9 +208,9 @@ export default function HomePage() {
                 ))}
               </ol>
             </div>
-          </Reveal>
+          </div>
 
-          <Reveal className="mt-20 text-center">
+          <div className="mt-20 text-center">
             <h2 className="text-3xl sm:text-4xl font-semibold">Seen something broken?</h2>
             <p className="mt-3 text-fg-muted">It takes about two minutes, and your name stays private.</p>
             <div className="mt-8 flex flex-col sm:flex-row justify-center gap-3">
@@ -216,7 +224,7 @@ export default function HomePage() {
                 </Link>
               )}
             </div>
-          </Reveal>
+          </div>
         </div>
       </section>
     </div>

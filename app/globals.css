@@ -175,6 +175,15 @@
   }
 }
 
+@keyframes status-fade {
+  from {
+    opacity: 0.3;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
@@ -206,14 +215,52 @@
   transform: rotate(90deg);
 }
 
+/* The brand beat, fired in sync with the dot-field pulse (useBrandPulse). */
+@keyframes plus-beat {
+  0% {
+    transform: scale(1);
+  }
+  18% {
+    transform: scale(1.38);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.beat .logo-plus {
+  animation: plus-beat 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* A status badge that just changed value settles in (StatusBadge). */
+@keyframes status-swap {
+  from {
+    opacity: 0.2;
+    transform: scale(0.88);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+.status-swap {
+  animation: status-swap 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* Reduced motion: stop decorative loops and spatial movement, keep colour /
    opacity state changes and a slowed loading spinner so progress stays visible. */
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse,
   .animate-ping,
   .logo-plus-idle,
+  .beat .logo-plus,
   .skeleton::after {
     animation: none !important;
+  }
+  /* Keep the meaning of a status change without the scale and blur. */
+  .status-swap {
+    animation-name: status-fade !important;
   }
   .animate-spin {
     animation-duration: 2.5s !important;

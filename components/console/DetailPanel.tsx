@@ -190,8 +190,8 @@ export default function DetailPanel({
         aria-labelledby="detail-title"
         initial={{ x: '100%' }}
         animate={{ x: 0 }}
-        exit={{ x: '100%' }}
-        transition={{ duration: 0.38, ease: EASE_OUT }}
+        exit={{ x: '100%', transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } }}
+        transition={{ duration: 0.36, ease: EASE_OUT }}
         className="relative w-full sm:max-w-xl h-full bg-ink-900 border-l border-line shadow-2xl flex flex-col"
       >
         <header className="flex items-center justify-between gap-3 px-5 sm:px-6 h-16 border-b border-line shrink-0">
