@@ -1,5 +1,5 @@
 -- ============================================================
--- CAMPUS SPEEDRUN: DEMO SEED DATA
+-- CAMPLUSE: DEMO SEED DATA
 -- Run AFTER supabase_migration.sql in the Supabase SQL Editor.
 --
 -- Moves the demo tickets that used to be hard-coded in

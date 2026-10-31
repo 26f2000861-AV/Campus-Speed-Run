@@ -1,5 +1,5 @@
 -- ============================================================
--- CAMPUS SPEEDRUN: COMPLETE INSTITUTIONAL DATABASE MIGRATION
+-- CAMPLUSE: COMPLETE INSTITUTIONAL DATABASE MIGRATION
 -- Run this in the Supabase SQL Editor of your project.
 --
 -- Idempotent: safe to run on a fresh project or to upgrade an
