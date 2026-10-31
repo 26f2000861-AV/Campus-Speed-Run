@@ -20,7 +20,7 @@ const mono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Campus Pulse+ — Report, track and resolve campus issues',
+  title: 'Campluse — Report, track and resolve campus issues',
   description:
     'Report campus issues anonymously, track their progress, and see them resolved through a 72-hour, three-tier escalation chain.',
 };

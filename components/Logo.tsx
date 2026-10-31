@@ -1,4 +1,4 @@
-// Campus Pulse+ wordmark. The plus sits raised after "Pulse" like a superscript;
+// Campluse wordmark. The plus mark sits raised after the name like a superscript;
 // it breathes slowly at rest and turns a quarter on hover (see .logo-plus in globals.css).
 
 const SIZES = {
@@ -22,9 +22,8 @@ export default function Logo({ size = 'md', className = '' }: { size?: keyof typ
   const s = SIZES[size];
   return (
     <span className={`inline-flex items-start font-semibold tracking-[-0.045em] text-fg leading-none ${s.text} ${className}`}>
-      <span>Campus Pulse</span>
+      <span>Campluse</span>
       <PlusGlyph size={s.plus} className={`shrink-0 ${s.gap}`} />
-      <span className="sr-only">+</span>
     </span>
   );
 }

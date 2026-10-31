@@ -48,7 +48,7 @@ export default function SiteFooter() {
         </div>
       </div>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 border-t border-line text-xs text-fg-muted">
-        &copy; {new Date().getFullYear()} Campus Pulse+
+        &copy; {new Date().getFullYear()} Campluse
       </div>
     </footer>
   );
