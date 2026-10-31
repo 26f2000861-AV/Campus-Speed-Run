@@ -8,7 +8,7 @@ const serverUrl = envUrl && !/localhost|127\.0\.0\.1/.test(envUrl) ? envUrl : 'h
 
 const config: CapacitorConfig = {
   appId: 'com.campusspeedrun.app',
-  appName: 'Campus Pulse+',
+  appName: 'Campluse',
   webDir: 'public',
   server: {
     url: serverUrl,

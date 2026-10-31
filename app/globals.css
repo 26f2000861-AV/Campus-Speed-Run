@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Campus Pulse+ — ink system (see DESIGN.md).
+/* Campluse — ink system (see DESIGN.md).
    Ground #08090B, surfaces #111318 / #181A20, text #F5F5F5 / #A1A1AA, borders #292B32.
    Signals: ok #22C55E (resolved), warn #EAB308 (in progress), bad #EF4444 (unresolved). */
 @layer base {

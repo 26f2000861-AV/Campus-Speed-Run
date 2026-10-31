@@ -3,8 +3,8 @@ import type { MetadataRoute } from 'next';
 // Installable PWA / Capacitor shell: opens full screen with the app's dark ink chrome.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Campus Pulse+',
-    short_name: 'Pulse+',
+    name: 'Campluse',
+    short_name: 'Campluse',
     description: 'Report campus issues anonymously and track them to resolution.',
     start_url: '/',
     display: 'standalone',
