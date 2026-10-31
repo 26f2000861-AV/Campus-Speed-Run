@@ -1,23 +1,27 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertOctagon, AlertTriangle, CircleDot, MinusCircle } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import type { ComplaintPriority, ComplaintStatus } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
-// Urgency (spec 04 §4): CRITICAL crimson pulsing, HIGH amber, MEDIUM indigo,
-// LOW slate. Colour is always paired with the text label + numeric score.
+// Urgency (spec 04 §4). Neutral pill with a coloured dot so priority never
+// competes with status colour; CRITICAL is the only red. Colour is always
+// paired with the text label + numeric score.
 // ---------------------------------------------------------------------------
-const PRIORITY_STYLE: Record<ComplaintPriority, { pill: string; dot: string; Icon: typeof AlertOctagon }> = {
-  CRITICAL: { pill: 'bg-red-950/70 text-red-200 border-red-700', dot: 'bg-red-500', Icon: AlertOctagon },
-  HIGH: { pill: 'bg-amber-950/70 text-amber-200 border-amber-700', dot: 'bg-amber-400', Icon: AlertTriangle },
-  MEDIUM: { pill: 'bg-indigo-950/70 text-indigo-200 border-indigo-700', dot: 'bg-indigo-400', Icon: CircleDot },
-  LOW: { pill: 'bg-slate-800 text-slate-300 border-slate-600', dot: 'bg-slate-400', Icon: MinusCircle },
+const PRIORITY_STYLE: Record<ComplaintPriority, { dot: string; text: string; label: string }> = {
+  CRITICAL: { dot: 'bg-bad', text: 'text-bad-soft', label: 'Critical' },
+  HIGH: { dot: 'bg-orange-400', text: 'text-orange-200', label: 'High' },
+  MEDIUM: { dot: 'bg-steel', text: 'text-fg', label: 'Medium' },
+  LOW: { dot: 'bg-fg-subtle', text: 'text-fg-muted', label: 'Low' },
 };
 
-function priorityStyle(priority: string | null | undefined) {
-  return PRIORITY_STYLE[(priority as ComplaintPriority) in PRIORITY_STYLE ? (priority as ComplaintPriority) : 'LOW'];
-}
+export const PRIORITY_LABEL: Record<string, string> = {
+  CRITICAL: 'Critical',
+  HIGH: 'High',
+  MEDIUM: 'Medium',
+  LOW: 'Low',
+};
 
 export function UrgencyPill({
   priority,
@@ -34,40 +38,24 @@ export function UrgencyPill({
   /** Staff queue: pulse only for tickets that still need someone to act on a safety risk. */
   pulse?: boolean;
 }) {
-  const s = priorityStyle(priority);
-  const label = priority || 'PENDING';
+  const known = (priority as ComplaintPriority) in PRIORITY_STYLE;
+  const s = PRIORITY_STYLE[known ? (priority as ComplaintPriority) : 'LOW'];
   return (
     <span
-      className={`inline-flex flex-wrap items-center gap-x-1.5 max-w-full px-2.5 py-0.5 rounded-full border text-xs font-mono font-semibold ${s.pill} ${className}`}
+      className={`inline-flex items-center gap-1.5 max-w-full h-6 px-2 rounded-md border border-line bg-white/[0.03] text-xs font-medium whitespace-nowrap ${s.text} ${className}`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${pulse && !calm ? 'animate-pulse' : ''}`} aria-hidden="true" />
-      <s.Icon className="w-3.5 h-3.5" aria-hidden="true" />
-      <span>{label}</span>
+      <span className="relative flex w-1.5 h-1.5" aria-hidden="true">
+        {pulse && !calm && <span className={`absolute inset-0 rounded-full ${s.dot} animate-ping opacity-60`} />}
+        <span className={`relative w-1.5 h-1.5 rounded-full ${s.dot}`} />
+      </span>
+      <span>{known ? s.label : 'Pending'}</span>
       {typeof score === 'number' && (
-        <>
-          <span aria-hidden="true">&bull;</span>
-          <span>Score: {score}/100</span>
-        </>
+        <span className="font-mono text-fg-muted tabular-nums">
+          <span className="sr-only">, score </span>
+          {score}
+        </span>
       )}
     </span>
-  );
-}
-
-/** Thin score meter bar (decorative; the number is always shown next to it). */
-export function ScoreMeter({ priority, score }: { priority: string; score: number }) {
-  const bar =
-    priority === 'CRITICAL'
-      ? 'bg-red-500'
-      : priority === 'HIGH'
-      ? 'bg-amber-400'
-      : priority === 'MEDIUM'
-      ? 'bg-indigo-400'
-      : 'bg-slate-400';
-  const pct = Math.max(0, Math.min(100, score));
-  return (
-    <div className="h-1 w-full rounded-full bg-slate-800 overflow-hidden" aria-hidden="true">
-      <div className={`h-full ${bar}`} style={{ width: `${pct}%` }} />
-    </div>
   );
 }
 
@@ -89,9 +77,9 @@ export function HashtagPill({
       type="button"
       onClick={() => onClick(tag)}
       aria-pressed={active}
-      aria-label={`Filter queue by ${tag}`}
-      className={`hashtag-pill py-1.5 min-h-[30px] transition-colors hover:border-indigo-500 hover:text-indigo-200 ${
-        active ? 'ring-2 ring-indigo-400 text-indigo-100' : ''
+      aria-label={`Filter by ${tag}`}
+      className={`hashtag-pill h-8 px-2.5 transition-colors hover:text-fg hover:border-line-strong ${
+        active ? 'bg-fg text-ink-950 border-fg hover:text-ink-950' : ''
       }`}
     >
       {tag}
@@ -100,26 +88,41 @@ export function HashtagPill({
 }
 
 // ---------------------------------------------------------------------------
-// Execution status (spec 09 §2 axis B)
+// Execution status (spec 09 §2 axis B). Green = resolved, yellow = being
+// worked on, red = nobody has picked it up yet (or it was escalated).
 // ---------------------------------------------------------------------------
-const STATUS_STYLE: Record<ComplaintStatus, { cls: string; dot: string; label: string }> = {
-  UNACKNOWLEDGED: { cls: 'text-red-200 border-red-800 bg-red-950/40', dot: 'bg-red-500', label: 'Unacknowledged' },
-  ACKNOWLEDGED: { cls: 'text-amber-200 border-amber-800 bg-amber-950/40', dot: 'bg-amber-400', label: 'Acknowledged' },
-  IN_PROGRESS: {
-    cls: 'text-indigo-200 border-indigo-800 bg-indigo-950/40',
-    dot: 'bg-indigo-400',
-    label: 'In Progress',
-  },
-  ESCALATED: { cls: 'text-orange-200 border-orange-800 bg-orange-950/40', dot: 'bg-orange-400', label: 'Escalated' },
-  RESOLVED: { cls: 'text-emerald-200 border-emerald-800 bg-emerald-950/40', dot: 'bg-emerald-400', label: 'Resolved' },
+export type Tone = 'ok' | 'warn' | 'bad';
+
+export function statusTone(status: string): Tone {
+  if (status === 'RESOLVED') return 'ok';
+  if (status === 'ACKNOWLEDGED' || status === 'IN_PROGRESS') return 'warn';
+  return 'bad';
+}
+
+export const TONE_DOT: Record<Tone, string> = { ok: 'bg-ok', warn: 'bg-warn', bad: 'bg-bad' };
+export const TONE_TEXT: Record<Tone, string> = { ok: 'text-ok-soft', warn: 'text-warn-soft', bad: 'text-bad-soft' };
+const TONE_BADGE: Record<Tone, string> = {
+  ok: 'bg-ok/10 border-ok/25',
+  warn: 'bg-warn/10 border-warn/25',
+  bad: 'bg-bad/10 border-bad/25',
+};
+
+export const STATUS_LABEL: Record<ComplaintStatus, string> = {
+  UNACKNOWLEDGED: 'New',
+  ACKNOWLEDGED: 'Acknowledged',
+  IN_PROGRESS: 'In progress',
+  ESCALATED: 'Escalated',
+  RESOLVED: 'Resolved',
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_STYLE[status as ComplaintStatus] ?? STATUS_STYLE.UNACKNOWLEDGED;
+  const tone = statusTone(status);
   return (
-    <span className={`inline-flex items-center gap-1.5 max-w-full px-2.5 py-0.5 rounded-full border text-xs font-semibold [overflow-wrap:anywhere] ${s.cls}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} aria-hidden="true" />
-      <span>{s.label}</span>
+    <span
+      className={`inline-flex items-center gap-1.5 max-w-full h-6 px-2 rounded-md border text-xs font-medium whitespace-nowrap ${TONE_BADGE[tone]} ${TONE_TEXT[tone]}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${TONE_DOT[tone]}`} aria-hidden="true" />
+      <span>{STATUS_LABEL[status as ComplaintStatus] ?? status}</span>
     </span>
   );
 }
@@ -153,25 +156,22 @@ export function slaInfo(deadline: string | null | undefined, now: number): { tex
 export function SlaChip({ deadline, now, resolved = false }: { deadline: string; now: number; resolved?: boolean }) {
   if (resolved) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-emerald-800 bg-emerald-950/40 text-emerald-200 text-xs font-mono">
-        SLA clock stopped
+      <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-md border border-ok/25 bg-ok/10 text-ok-soft text-xs font-medium whitespace-nowrap">
+        Clock stopped
       </span>
     );
   }
   const sla = slaInfo(deadline, now);
   const cls =
     sla.level === 'breached'
-      ? 'border-red-700 bg-red-950/60 text-red-200'
+      ? 'border-bad/30 bg-bad/10 text-bad-soft'
       : sla.level === 'warn'
-      ? 'border-amber-600 bg-amber-950/60 text-amber-200'
-      : 'border-slate-700 bg-slate-800 text-slate-300';
+      ? 'border-warn/30 bg-warn/10 text-warn-soft'
+      : 'border-line bg-white/[0.03] text-fg-muted';
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-xs font-mono tabular-nums ${cls}`}>
+    <span className={`inline-flex items-center gap-1.5 h-6 px-2 rounded-md border text-xs font-mono tabular-nums whitespace-nowrap ${cls}`}>
       {sla.level !== 'ok' && <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />}
-      <span>
-        {sla.level === 'warn' ? 'Under 24h: ' : ''}
-        {sla.text}
-      </span>
+      <span>{sla.level === 'breached' ? 'Overdue — escalating' : sla.text}</span>
     </span>
   );
 }
@@ -233,13 +233,13 @@ export function SummaryLines({ summary, className = '' }: { summary: string | nu
   const text = (summary || '').trim();
   if (!text) return null;
   const parts = splitSummary(text);
-  if (!parts) return <p className={`text-sm text-slate-300 leading-relaxed max-w-[34rem] ${className}`}>{text}</p>;
+  if (!parts) return <p className={`text-sm text-fg-muted leading-relaxed max-w-[38rem] ${className}`}>{text}</p>;
   return (
-    <dl className={`grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm leading-relaxed max-w-[34rem] ${className}`}>
+    <dl className={`grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm leading-relaxed max-w-[38rem] ${className}`}>
       {parts.map((p) => (
         <div key={p.label} className="contents">
-          <dt className="cs-label text-slate-400 pt-0.5">{p.label}</dt>
-          <dd className="text-slate-300">{p.text}</dd>
+          <dt className="text-xs font-medium text-fg-subtle pt-0.5 w-14">{p.label}</dt>
+          <dd className="text-fg-muted">{p.text}</dd>
         </div>
       ))}
     </dl>
@@ -287,3 +287,33 @@ export function nextStepText(
     : `${holder} has it, the final tier. Target: ${when}.`;
 }
 
+
+export function EmptyState({
+  icon: Icon,
+  title,
+  body,
+  action,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  body?: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="py-12 px-6 text-center">
+      <span className="mx-auto w-11 h-11 rounded-xl border border-line bg-white/[0.02] flex items-center justify-center text-fg-muted">
+        <Icon className="w-5 h-5" />
+      </span>
+      <p className="mt-4 text-[15px] font-medium">{title}</p>
+      {body && <p className="mt-1 text-sm text-fg-muted max-w-sm mx-auto">{body}</p>}
+      {action && <div className="mt-5 flex justify-center">{action}</div>}
+    </div>
+  );
+}
+
+export function formatDate(iso: string, withTime = true): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const date = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return withTime ? `${date}, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : date;
+}

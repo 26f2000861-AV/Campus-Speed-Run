@@ -18,13 +18,15 @@ function optionalString(value: unknown): unknown {
 }
 
 /**
- * POST /api/complaints/submit — STUDENT session only (spec 01 §5: no guest submit).
+ * POST /api/complaints/submit
  * Body: { rawText, locationZone, imageUrl?, documentUrl?, attachmentName? }.
- * studentId always comes from the session; any client-supplied id is ignored.
+ * If submitted by a signed-in STUDENT, studentId is captured and can_track = true.
+ * If submitted without signing in (guest), studentId = null and can_track = false.
  */
 export async function POST(req: NextRequest) {
+  // Check auth optionally: student vs guest
   const auth = await requireRole(req, ['STUDENT']);
-  if ('response' in auth) return auth.response;
+  const studentId = !('response' in auth) && auth?.user?.id ? auth.user.id : null;
 
   try {
     const body = await req.json().catch(() => null);
@@ -55,7 +57,7 @@ export async function POST(req: NextRequest) {
         : null;
 
     // Duplicate-cluster detection against active (non-resolved) groups, plus the evidence
-    // photo (if any) so Gemini can judge damage from the image too (spec 05 §2).
+    // photo (if any) so Gemini can judge damage from the image too.
     const [activeClusters, photo] = await Promise.all([
       getActiveClusters(),
       image !== null ? loadEvidenceImage(image as string) : Promise.resolve(null),
@@ -68,7 +70,7 @@ export async function POST(req: NextRequest) {
       imageUrl: image as string | null,
       documentUrl: document as string | null,
       attachmentName: attachment,
-      studentId: auth.user.id,
+      studentId,
       triage,
       activeClusterIds: activeClusters.map((c) => c.id),
     });

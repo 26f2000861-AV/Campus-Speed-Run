@@ -1,22 +1,29 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  ShieldCheck,
-  Key,
-  Copy,
-  Check,
-  Trash2,
-  Plus,
-  RefreshCw,
-  Lock,
-  ArrowRight,
-  Sparkles,
-  UserCheck,
-  AlertCircle,
-} from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { AlertCircle, ArrowRight, Check, Copy, KeyRound, Loader2, Lock, Plus, RefreshCw, ShieldCheck, Trash2, UserCheck, Users } from 'lucide-react';
 import { StaffRegistrationCode, UserRole, DepartmentCode } from '@/lib/types';
 import { useAuth } from '@/lib/auth-context';
+import ConsoleShell from '@/components/console/ConsoleShell';
+import { MetricCard } from '@/components/charts';
+import { EmptyState, TIER_LABEL, formatDate } from '@/components/ui';
+import { EASE_OUT, staggerChild, staggerParent } from '@/components/motion';
+
+const DEPT_LABEL: Record<string, string> = {
+  BTECH: 'B.Tech',
+  MCA: 'MCA',
+  SCI: 'Applied Sciences',
+  INFRA: 'Infrastructure',
+  IT: 'IT & Network',
+  SAN: 'Sanitation',
+};
+
+function initials(email?: string) {
+  const name = (email || '?').split('@')[0].replace(/[._-]+/g, ' ').trim();
+  const parts = name.split(' ').filter(Boolean);
+  return ((parts[0]?.[0] || '?') + (parts[1]?.[0] || '')).toUpperCase();
+}
 
 export default function AdminPage() {
   const { user } = useAuth();
@@ -31,7 +38,9 @@ export default function AdminPage() {
   // Codes State
   const [codes, setCodes] = useState<StaffRegistrationCode[]>([]);
   const [loadingCodes, setLoadingCodes] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
 
   // Generator State
   const [genRole, setGenRole] = useState<UserRole>('TEACHER');
@@ -58,7 +67,7 @@ export default function AdminPage() {
   const handleAdminFailure = (status: number) => {
     if (status === 401 || status === 403) {
       setIsAdminAuthenticated(false);
-      setAuthError('Administrative clearance expired or was rejected. Please authenticate again.');
+      setAuthError('Your admin access expired or was rejected. Enter the passcode again.');
     }
   };
 
@@ -67,7 +76,13 @@ export default function AdminPage() {
     if (isAdminAuthenticated) {
       loadCodes();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdminAuthenticated]);
+
+  const flash = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 4000);
+  };
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,12 +99,12 @@ export default function AdminPage() {
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Invalid administrative clearance.');
+        throw new Error(data.error || 'That passcode wasn’t accepted.');
       }
 
       setIsAdminAuthenticated(true);
     } catch (err: any) {
-      setAuthError(err.message || 'Verification failed');
+      setAuthError(err.message || 'Verification failed. Please try again.');
     } finally {
       setAuthenticating(false);
     }
@@ -97,6 +112,7 @@ export default function AdminPage() {
 
   const loadCodes = async () => {
     setLoadingCodes(true);
+    setLoadError(null);
     try {
       const res = await fetch('/api/admin/codes', {
         headers: adminHeaders(),
@@ -108,9 +124,10 @@ export default function AdminPage() {
         setCodes(data.codes || []);
       } else {
         handleAdminFailure(res.status);
+        if (res.status !== 401 && res.status !== 403) setLoadError(data.error || 'We couldn’t load staff codes.');
       }
-    } catch (err) {
-      console.error('Failed to load codes:', err);
+    } catch {
+      setLoadError('We couldn’t reach the server. Check your connection and retry.');
     } finally {
       setLoadingCodes(false);
     }
@@ -135,21 +152,20 @@ export default function AdminPage() {
       if (res.ok && data.success && data.code) {
         setCodes((prev) => [data.code, ...prev]);
         setGenNote('');
-        setToastMsg(`Generated new code: ${data.code.code}`);
-        setTimeout(() => setToastMsg(null), 4000);
+        flash(`Code ${data.code.code} created.`);
       } else {
         handleAdminFailure(res.status);
+        if (res.status !== 401 && res.status !== 403) flash(data.error || 'The code couldn’t be created.');
       }
-    } catch (err) {
-      console.error('Failed to generate code:', err);
+    } catch {
+      flash('Network error. The code wasn’t created.');
     } finally {
       setGenerating(false);
     }
   };
 
   const handleRevoke = async (code: string) => {
-    if (!confirm(`Revoke registration code ${code}?`)) return;
-
+    setConfirmRevoke(null);
     try {
       const res = await fetch(`/api/admin/codes?code=${encodeURIComponent(code)}`, {
         method: 'DELETE',
@@ -159,211 +175,241 @@ export default function AdminPage() {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         setCodes((prev) => prev.filter((c) => c.code !== code));
+        flash(`Code ${code} revoked.`);
       } else {
         handleAdminFailure(res.status);
+        if (res.status !== 401 && res.status !== 403) flash(data.error || 'The code couldn’t be revoked.');
       }
-    } catch (err) {
-      console.error('Failed to revoke code:', err);
+    } catch {
+      flash('Network error. The code wasn’t revoked.');
     }
   };
 
-  const copyToClipboard = (code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedCode(code);
-    setTimeout(() => setCopiedCode(null), 2500);
+  const copyToClipboard = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode(null), 2500);
+    } catch {
+      /* clipboard unavailable — the code is visible on screen */
+    }
   };
 
-  // 1. ADMIN GATE: Displayed if not authenticated as Admin
+  // 1. Gate: shown until an ADMINISTRATIVE session or a valid passcode unlocks it.
   if (!isAdminAuthenticated) {
     return (
-      <div className="min-h-[calc(100vh-140px)] flex flex-col justify-center items-center py-12 px-4 sm:px-6">
-        <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-8 sm:p-10 rounded-3xl shadow-xl relative">
-
-          <div className="text-center mb-8">
-            <ShieldCheck className="w-6 h-6 text-slate-400 mx-auto mb-3" aria-hidden="true" />
-            <h1 className="font-serif text-3xl font-normal text-slate-100 tracking-tight">
-              Administrative Gate
-            </h1>
-            <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-              Restricted management console for issuing staff cockpit registration keys. Enter administrative passkey to proceed.
-            </p>
-          </div>
+      <div className="min-h-[calc(100svh-10rem)] flex items-center justify-center py-12 px-4 sm:px-6">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: EASE_OUT }}
+          className="cs-glass w-full max-w-md p-6 sm:p-8"
+        >
+          <span className="w-11 h-11 rounded-xl border border-line bg-white/[0.04] flex items-center justify-center">
+            <ShieldCheck className="w-5 h-5" aria-hidden="true" />
+          </span>
+          <h1 className="mt-5 text-2xl font-semibold">Staff access</h1>
+          <p className="mt-1 text-sm text-fg-muted">Issue registration codes for teachers, faculty and administration.</p>
 
           {authError && (
-            <div role="alert" className="mb-4 p-3 bg-red-950/50 border border-red-800 text-red-200 text-xs rounded-xl flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-300 shrink-0" />
+            <div role="alert" className="alert-error mt-5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
               <span>{authError}</span>
             </div>
           )}
 
-          <form onSubmit={handleAdminLogin} className="space-y-4">
+          <form onSubmit={handleAdminLogin} className="mt-6 space-y-4">
             <div>
-              <label htmlFor="passcode" className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-                <Key className="w-3.5 h-3.5 text-slate-400" />
-                <span>Administrative Passkey / Key *</span>
+              <label htmlFor="passcode" className="cs-field-label">
+                Admin passcode
               </label>
-              <input
-                type="password"
-                required
-                suppressHydrationWarning
-                id="passcode"
-                value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
-                placeholder="Administrative passkey"
-                className="cs-input font-mono"
-              />
-              <p className="text-xs text-slate-400 mt-1">
-                Or sign in with an ADMINISTRATIVE account to skip this step.
+              <div className="relative">
+                <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-subtle" aria-hidden="true" />
+                <input
+                  type="password"
+                  required
+                  suppressHydrationWarning
+                  id="passcode"
+                  autoComplete="off"
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                  aria-describedby="passcode-hint"
+                  className="cs-input pl-10 font-mono"
+                />
+              </div>
+              <p id="passcode-hint" className="cs-hint">
+                Signed in as administration? This step is skipped.
               </p>
             </div>
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={authenticating}
-                suppressHydrationWarning
-                className="btn-primary w-full py-3 px-6"
-              >
-                <span>{authenticating ? 'Verifying Clearance...' : 'Authenticate Clearance'}</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
+            <button type="submit" disabled={authenticating} suppressHydrationWarning className="btn-primary w-full h-11">
+              {authenticating && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
+              <span>{authenticating ? 'Checking…' : 'Unlock'}</span>
+              {!authenticating && <ArrowRight className="w-4 h-4" aria-hidden="true" />}
+            </button>
           </form>
-
-          <div className="mt-6 pt-4 border-t border-slate-800 text-center">
-            <span className="text-xs text-slate-400">
-              Direct URL Route Only &bull; Strict Zero-Leakage Policy
-            </span>
-          </div>
-        </div>
+        </motion.div>
       </div>
     );
   }
 
-  // 2. AUTHENTICATED ADMIN DASHBOARD: Display unique codes and generator
+  // 2. Unlocked: staff directory, code issuance and active codes.
   const activeCodes = codes.filter((c) => !c.is_used);
   const usedCodes = codes.filter((c) => c.is_used);
+  const firstLoad = loadingCodes && codes.length === 0;
 
-  return (
-    <div className="max-w-7xl mx-auto py-10 px-4 sm:px-6 space-y-10">
-      {/* Toast Notification */}
-      {toastMsg && (
-        <div role="status" className="fixed top-20 right-6 z-50 p-4 bg-emerald-950 border border-emerald-800 text-emerald-200 text-xs rounded-2xl shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-4">
-          <Check className="w-4 h-4 text-emerald-400" />
-          <span>{toastMsg}</span>
+  const content = (
+    <>
+      <AnimatePresence>
+        {toastMsg && (
+          <motion.div
+            role="status"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] w-[min(92vw,26rem)] flex items-center gap-2.5 px-4 py-3 rounded-xl bg-fg text-ink-950 text-sm shadow-2xl"
+          >
+            <Check className="w-4 h-4 text-green-700 shrink-0" aria-hidden="true" />
+            <span>{toastMsg}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <p className="text-xs text-fg-subtle">Administration</p>
+          <h1 className="mt-1 text-2xl sm:text-3xl font-semibold">Staff management</h1>
+          <p className="mt-1 text-sm text-fg-muted">Registered staff, and single-use codes for new staff accounts.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={loadCodes} disabled={loadingCodes} className="btn-secondary">
+            <RefreshCw className={`w-4 h-4 ${loadingCodes ? 'animate-spin' : ''}`} aria-hidden="true" />
+            Refresh
+          </button>
+          {!isAdminSession && (
+            <button
+              onClick={() => {
+                setIsAdminAuthenticated(false);
+                setPasscode('');
+                setCodes([]);
+              }}
+              className="btn-ghost"
+            >
+              <Lock className="w-4 h-4" aria-hidden="true" />
+              Lock
+            </button>
+          )}
+        </div>
+      </header>
+
+      {loadError && (
+        <div role="alert" className="alert-error items-center mt-6">
+          <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+          <span className="flex-1">{loadError}</span>
+          <button type="button" onClick={loadCodes} className="underline font-medium">
+            Retry
+          </button>
         </div>
       )}
 
-      {/* Header Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-800">
-        <div>
-          <h1 className="font-serif text-3xl sm:text-4xl font-normal text-slate-100 tracking-tight">
-            Staff Access & Code Authority
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-300 mt-1">
-            Issue cryptographically unique registration keys for department teachers, faculty coordinators, and administrative officers.
-          </p>
-        </div>
+      <motion.div variants={staggerParent} initial="hidden" animate="show" className="mt-6 grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <motion.div variants={staggerChild}>
+          <MetricCard label="Registered staff" value={usedCodes.length} icon={Users} loading={firstLoad} hint="Joined with a code" />
+        </motion.div>
+        <motion.div variants={staggerChild}>
+          <MetricCard label="Unused codes" value={activeCodes.length} icon={KeyRound} tone="ok" loading={firstLoad} hint="Ready to share" />
+        </motion.div>
+        <motion.div variants={staggerChild} className="col-span-2 lg:col-span-1">
+          <MetricCard
+            label="Codes issued"
+            value={codes.length}
+            icon={UserCheck}
+            loading={firstLoad}
+            hint={`Staff: ${usedCodes.filter((c) => c.role === 'TEACHER').length} teachers · ${
+              usedCodes.filter((c) => c.role === 'FACULTY').length
+            } faculty · ${usedCodes.filter((c) => c.role === 'ADMINISTRATIVE').length} admin`}
+          />
+        </motion.div>
+      </motion.div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={loadCodes}
-            disabled={loadingCodes}
-            className="btn-secondary px-4 py-2 gap-1.5"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loadingCodes ? 'animate-spin' : ''}`} />
-            <span>Refresh</span>
-          </button>
-          <button
-            onClick={() => {
-              setIsAdminAuthenticated(false);
-              setPasscode('');
-              setCodes([]);
-            }}
-            className="px-4 py-2 rounded-full bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 font-medium flex items-center gap-1.5 transition-all"
-          >
-            <Lock className="w-3.5 h-3.5" />
-            <span>Lock Admin</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Top Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="bg-slate-900 border border-slate-800 shadow-sm p-6 rounded-3xl">
-          <div className="text-xs text-slate-400 uppercase">Active Unique Keys</div>
-          <div className="font-serif text-3xl font-medium text-emerald-300 mt-2">
-            {activeCodes.length}
+      {/* Staff directory */}
+      <section className="mt-8" aria-labelledby="staff-heading">
+        <h2 id="staff-heading" className="text-lg font-semibold">
+          Staff
+        </h2>
+        {firstLoad ? (
+          <div className="mt-4 grid sm:grid-cols-2 xl:grid-cols-3 gap-3" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="skeleton h-24" />
+            ))}
           </div>
-          <div className="text-xs text-slate-400 mt-1">Available for staff registration</div>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 shadow-sm p-6 rounded-3xl">
-          <div className="text-xs text-slate-400 uppercase">Redeemed Staff Keys</div>
-          <div className="font-serif text-3xl font-medium text-slate-200 mt-2">
-            {usedCodes.length}
+        ) : usedCodes.length === 0 ? (
+          <div className="mt-4 cs-card">
+            <EmptyState icon={Users} title="No staff registered yet" body="Create a code below and share it with a staff member." />
           </div>
-          <div className="text-xs text-slate-400 mt-1">Claimed by verified personnel</div>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 shadow-sm p-6 rounded-3xl">
-          <div className="text-xs text-slate-400 uppercase">Access Security Mode</div>
-          <div className="font-serif text-2xl font-medium text-slate-100 mt-2 flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse"></span>
-            <span>Code-Gated</span>
-          </div>
-          <div className="text-xs text-slate-400 mt-1">Direct URL access only &bull; Zero public CTA</div>
-        </div>
-      </div>
-
-      {/* Main Grid: Code Generator + Active Codes List */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column: Code Generator */}
-        <div className="lg:col-span-5 bg-slate-900 border border-slate-800 shadow-sm p-8 rounded-3xl space-y-6">
-          <div className="flex items-center gap-2 pb-4 border-b border-slate-800">
-            <Plus className="w-4 h-4 text-slate-400" />
-            <h2 className="font-serif text-xl font-normal text-slate-100">Generate Unique Key</h2>
-          </div>
-
-          <form onSubmit={handleGenerateCode} className="space-y-5">
-            <div>
-              <label htmlFor="genRole" className="block text-xs font-medium text-slate-300 mb-1.5">
-                Target Role Tier *
-              </label>
-              <select
-                id="genRole"
-                value={genRole}
-                onChange={(e) => setGenRole(e.target.value as UserRole)}
-                className="cs-input"
+        ) : (
+          <motion.ul variants={staggerParent} initial="hidden" animate="show" className="mt-4 grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {usedCodes.map((c) => (
+              <motion.li
+                key={c.code}
+                variants={staggerChild}
+                whileHover={{ y: -3 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                className="cs-card p-4 flex items-center gap-3.5 hover:border-line-strong"
               >
-                <option value="TEACHER">TEACHER — Tier 1 Department Coordinator</option>
-                <option value="FACULTY">FACULTY — Tier 2 Department Leadership</option>
-                <option value="ADMINISTRATIVE">ADMINISTRATIVE — Tier 3 Command Authority</option>
+                <motion.span
+                  initial={{ scale: 0.6, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 0.1 }}
+                  className="w-11 h-11 shrink-0 rounded-xl bg-gradient-to-br from-white/[0.14] to-white/[0.03] border border-white/[0.08] flex items-center justify-center text-sm font-semibold"
+                  aria-hidden="true"
+                >
+                  {initials(c.used_by_email)}
+                </motion.span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium truncate">{c.used_by_email || 'Staff member'}</span>
+                  <span className="block text-xs text-fg-muted truncate">
+                    {TIER_LABEL[c.role] ?? c.role} · {DEPT_LABEL[c.department_code] ?? c.department_code}
+                  </span>
+                  {c.used_at && <span className="block text-xs text-fg-subtle">Joined {formatDate(c.used_at, false)}</span>}
+                </span>
+              </motion.li>
+            ))}
+          </motion.ul>
+        )}
+      </section>
+
+      <div className="mt-8 grid lg:grid-cols-[minmax(0,380px)_1fr] gap-4 items-start">
+        {/* Generator */}
+        <section className="cs-card p-5 sm:p-6" aria-labelledby="gen-heading">
+          <h2 id="gen-heading" className="text-[15px] font-semibold flex items-center gap-2">
+            <Plus className="w-4 h-4" aria-hidden="true" /> New registration code
+          </h2>
+          <form onSubmit={handleGenerateCode} className="mt-5 space-y-4">
+            <div>
+              <label htmlFor="genRole" className="cs-field-label">
+                Role
+              </label>
+              <select id="genRole" value={genRole} onChange={(e) => setGenRole(e.target.value as UserRole)} className="cs-input">
+                <option value="TEACHER">Teacher · Tier 1</option>
+                <option value="FACULTY">Faculty · Tier 2</option>
+                <option value="ADMINISTRATIVE">Administration · Tier 3</option>
               </select>
             </div>
-
             <div>
-              <label htmlFor="genDept" className="block text-xs font-medium text-slate-300 mb-1.5">
-                Assigned Department *
+              <label htmlFor="genDept" className="cs-field-label">
+                Department
               </label>
-              <select
-                id="genDept"
-                value={genDept}
-                onChange={(e) => setGenDept(e.target.value as DepartmentCode)}
-                className="cs-input"
-              >
-                <option value="BTECH">BTECH — B.Tech / Engineering</option>
-                <option value="MCA">MCA — Computer Applications</option>
-                <option value="SCI">SCI — Applied Sciences & Hazardous Labs</option>
-                <option value="INFRA">INFRA — Campus Infrastructure</option>
-                <option value="IT">IT — Central IT & Network Systems</option>
-                <option value="SAN">SAN — Sanitation & Facilities</option>
+              <select id="genDept" value={genDept} onChange={(e) => setGenDept(e.target.value as DepartmentCode)} className="cs-input">
+                {Object.entries(DEPT_LABEL).map(([code, label]) => (
+                  <option key={code} value={code}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </div>
-
             <div>
-              <label htmlFor="genNote" className="block text-xs font-medium text-slate-300 mb-1.5">
-                Memo / Recipient Note (Optional)
+              <label htmlFor="genNote" className="cs-field-label">
+                Note <span className="text-fg-subtle font-normal">(optional)</span>
               </label>
               <input
                 type="text"
@@ -371,153 +417,98 @@ export default function AdminPage() {
                 id="genNote"
                 value={genNote}
                 onChange={(e) => setGenNote(e.target.value)}
-                placeholder="e.g. Issued for Lab 3 Teacher Coordinator"
+                placeholder="e.g. Lab 3 coordinator"
                 className="cs-input"
               />
             </div>
-
-            <button
-              type="submit"
-              disabled={generating}
-              suppressHydrationWarning
-              className="btn-primary w-full py-3.5 px-6"
-            >
-              <Key className="w-4 h-4" />
-              <span>{generating ? 'Minting Key...' : 'Issue Unique Registration Code'}</span>
+            <button type="submit" disabled={generating} suppressHydrationWarning className="btn-primary w-full h-11">
+              {generating ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <KeyRound className="w-4 h-4" aria-hidden="true" />}
+              <span>{generating ? 'Creating…' : 'Create code'}</span>
             </button>
           </form>
+          <p className="mt-4 text-xs text-fg-subtle leading-relaxed">
+            The staff member enters this code when creating a staff account. Their role and department are set from it.
+          </p>
+        </section>
 
-          <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs text-slate-300 space-y-1.5">
-            <div className="font-semibold text-slate-100 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-slate-400" />
-              <span>How Staff Registration Works</span>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Give this unique code to the designated staff member. They navigate to the Staff Cockpit register page, paste this code, and their account is automatically provisioned with the exact role and department permissions.
-            </p>
+        {/* Active codes */}
+        <section className="cs-card overflow-hidden" aria-labelledby="codes-heading">
+          <div className="px-5 sm:px-6 py-4 border-b border-line flex items-center justify-between">
+            <h2 id="codes-heading" className="text-[15px] font-semibold">
+              Unused codes
+            </h2>
+            <span className="text-xs text-fg-subtle">{activeCodes.length}</span>
           </div>
-        </div>
-
-        {/* Right Column: Code Inventory */}
-        <div className="lg:col-span-7 space-y-6">
-          <div className="bg-slate-900 border border-slate-800 shadow-sm p-8 rounded-3xl space-y-6">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-slate-400" />
-                <h2 className="font-serif text-xl font-normal text-slate-100">Active Registration Keys</h2>
-              </div>
-              <span className="text-xs text-slate-400">
-                {activeCodes.length} Available
-              </span>
+          {firstLoad ? (
+            <div className="p-5 space-y-2" aria-hidden="true">
+              <div className="skeleton h-14" />
+              <div className="skeleton h-14" />
             </div>
-
-            {loadingCodes ? (
-              <div className="py-12 text-center text-xs text-slate-400 animate-pulse">
-                Loading cryptographic keys...
-              </div>
-            ) : activeCodes.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-400">
-                No active codes available. Generate a new key using the panel on the left.
-              </div>
-            ) : (
-              <div className="space-y-3">
+          ) : activeCodes.length === 0 ? (
+            <EmptyState icon={KeyRound} title="No unused codes" body="Codes you create appear here until someone uses them." />
+          ) : (
+            <ul className="divide-y divide-line">
+              <AnimatePresence initial={false}>
                 {activeCodes.map((c) => (
-                  <div
+                  <motion.li
                     key={c.code}
-                    className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 hover:border-slate-600 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    layout
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25, ease: EASE_OUT }}
+                    className="px-5 sm:px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                   >
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm font-semibold tracking-wider text-slate-100">
-                          {c.code}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-950/40 border border-emerald-800 text-emerald-200 text-xs">
-                          ACTIVE
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono">
-                        <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800">
-                          Role: {c.role}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800">
-                          Dept: {c.department_code}
-                        </span>
-                        {c.note && <span className="text-slate-400">&bull; {c.note}</span>}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-end sm:self-center">
-                      <button
-                        onClick={() => copyToClipboard(c.code)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm ${
-                          copiedCode === c.code
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700'
-                        }`}
-                      >
-                        {copiedCode === c.code ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-white" />
-                            <span>Copied</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>Copy Key</span>
-                          </>
-                        )}
-                      </button>
-
-                      <button
-                        onClick={() => handleRevoke(c.code)}
-                        className="p-2 rounded-full border border-slate-800 hover:border-red-700 text-slate-400 hover:text-red-300 transition-colors"
-                        title="Revoke Code"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Redeemed / Used Codes Section */}
-          {usedCodes.length > 0 && (
-            <div className="bg-slate-900 border border-slate-800 shadow-sm p-6 rounded-3xl space-y-4 opacity-80">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-2 text-slate-300">
-                  <UserCheck className="w-4 h-4 text-slate-400" />
-                  <h3 className="font-serif text-lg font-normal text-slate-100">Redeemed Keys Log</h3>
-                </div>
-                <span className="text-xs text-slate-400">
-                  {usedCodes.length} Used
-                </span>
-              </div>
-
-              <div className="space-y-2">
-                {usedCodes.map((c) => (
-                  <div
-                    key={c.code}
-                    className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between text-xs font-mono"
-                  >
-                    <div>
-                      <span className="line-through text-slate-400">{c.code}</span>
-                      <span className="ml-2 text-slate-400">
-                        ({c.role} &mdash; {c.department_code})
+                    <div className="min-w-0">
+                      <span className="font-mono text-sm font-medium tracking-wide">{c.code}</span>
+                      <span className="block text-xs text-fg-muted truncate">
+                        {TIER_LABEL[c.role] ?? c.role} · {DEPT_LABEL[c.department_code] ?? c.department_code}
+                        {c.note ? ` · ${c.note}` : ''}
                       </span>
                     </div>
-                    <div className="text-xs text-slate-400">
-                      Redeemed by {c.used_by_email || 'staff member'}
-                    </div>
-                  </div>
+                    {confirmRevoke === c.code ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-fg-muted">Revoke {c.code}?</span>
+                        <button type="button" onClick={() => handleRevoke(c.code)} className="btn-secondary h-8 px-3 text-xs border-bad/40 text-bad-soft">
+                          Revoke
+                        </button>
+                        <button type="button" onClick={() => setConfirmRevoke(null)} className="btn-ghost h-8 px-2 text-xs">
+                          Keep
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <button type="button" onClick={() => copyToClipboard(c.code)} className="btn-secondary h-8 px-3 text-xs">
+                          {copiedCode === c.code ? <Check className="w-3.5 h-3.5 text-ok" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
+                          {copiedCode === c.code ? 'Copied' : 'Copy'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmRevoke(c.code)}
+                          className="btn-icon w-8 h-8 hover:text-bad-soft hover:border-bad/40"
+                          aria-label={`Revoke code ${c.code}`}
+                          title="Revoke"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                        </button>
+                      </div>
+                    )}
+                  </motion.li>
                 ))}
-              </div>
-            </div>
+              </AnimatePresence>
+            </ul>
           )}
-        </div>
+        </section>
       </div>
-    </div>
+    </>
+  );
+
+  // Signed-in administration gets the console sidebar; passcode-only access gets a plain page.
+  return isAdminSession ? (
+    <ConsoleShell active="staff" role="ADMINISTRATIVE">
+      {content}
+    </ConsoleShell>
+  ) : (
+    <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6">{content}</div>
   );
 }

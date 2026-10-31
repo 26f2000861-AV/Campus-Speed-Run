@@ -107,9 +107,14 @@ summaries without those labels render as one paragraph.
 ## Staff dashboard layout
 Queue first: header, live-alert ticker, a one-line Daily AI Executive Briefing strip, the hazard radar
 as a collapsible `<details>` (opens by itself while a zone filter is active), the hashtag filters (a
-single swipeable row on phones), then the ranked tickets. Ticket actions confirm visibly in a toast
+single swipeable row on phones), then the ranked tickets. Tickets are **compact rows**: rank, urgency, status, SLA, title (a button that expands the row),
+the spec 06 anonymous-reporter line with location, and a one-line preview of the AI justification,
+plus a quick Acknowledge. Expanding shows the score breakdown, flags, AI summary, full justification
+callout, hashtags and all actions. The #1 ticket starts expanded; "Expand all / Collapse all" sits by
+the queue heading; `o` (or Enter) toggles the focused row. On phones the rank badge joins the pill row.
+Ticket actions confirm visibly in a toast
 at the bottom of the screen (also announced to screen readers). Forward opens an inline confirm step
-with an optional note before anything changes. Keys: `j`/`k` move between tickets, `r` refreshes,
+with an optional note before anything changes. Keys: `j`/`k` move between tickets, `o` opens/closes one, `r` refreshes,
 `n` opens notifications (ignored while typing).
 
 ## Student views
@@ -129,7 +134,7 @@ Drawer items are neutral `slate-950/60` panels; the type (new assignment, SLA wa
 resolved) is a coloured dot plus its text label.
 
 ## Browser surfaces
-Selection is indigo-400 at 35% with slate-100 text; caret indigo-400; scrollbars slate-700 on
+Tab icon `app/icon.svg` repeats the navbar mark (serif italic C on slate-100). Selection is indigo-400 at 35% with slate-100 text; caret indigo-400; scrollbars slate-700 on
 slate-950 (`scrollbar-color` + WebKit rules); tabular numerals for data.
 
 ## Accessibility

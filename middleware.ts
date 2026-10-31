@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Contract B: pages that require a session. This is a presence check only;
-// every API route still verifies the token server-side via lib/server-auth.
+// Contract B: pages that require an authenticated session.
+// /student/submit allows guest submissions (untracked); /dashboard requires an active session.
 export function middleware(req: NextRequest) {
   if (!req.cookies.get('csr_access')?.value) {
     const url = req.nextUrl.clone();
@@ -13,5 +13,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/student/submit/:path*', '/dashboard/:path*'],
+  matcher: ['/dashboard/:path*'],
 };

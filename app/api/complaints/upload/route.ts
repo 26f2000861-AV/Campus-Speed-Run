@@ -126,8 +126,7 @@ function magicMatches(buf: Uint8Array, magic: Magic): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireRole(req, ['STUDENT']);
-  if ('response' in auth) return auth.response;
+  // Allow uploads from both signed-in students and guest report submitters
 
   const contentLength = Number(req.headers.get('content-length') || 0);
   if (contentLength > REQUEST_MAX_BYTES) {

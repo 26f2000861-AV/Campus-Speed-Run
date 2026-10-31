@@ -3,11 +3,26 @@
 import { useCallback, useEffect, useRef, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth } from '@/lib/auth-context';
-import type { StudentReportView, TrackedComplaintView } from '@/lib/types';
-import { HashtagPill, SlaChip, StatusBadge, SummaryLines, TIER_LABEL, UrgencyPill, nextStepText, useNow } from '@/components/ui';
+import type { StatusHistoryView, StudentReportView, TrackedComplaintView } from '@/lib/types';
+import {
+  HashtagPill,
+  SlaChip,
+  StatusBadge,
+  SummaryLines,
+  TIER_LABEL,
+  TONE_DOT,
+  UrgencyPill,
+  formatDate,
+  nextStepText,
+  statusTone,
+  useNow,
+} from '@/components/ui';
+import { EASE_OUT } from '@/components/motion';
+import { AlertCircle, ArrowRight, Check, Clock, Loader2, MapPin, Search, Users } from 'lucide-react';
 
-// History rows read as sentences ("Teacher acknowledged") instead of enum pairs.
+// History rows read as sentences ("Teacher acknowledged it") instead of enum pairs.
 const ACTOR_LABEL: Record<string, string> = {
   STUDENT: 'Student',
   TEACHER: 'Teacher',
@@ -17,6 +32,7 @@ const ACTOR_LABEL: Record<string, string> = {
 };
 const ACTION_LABEL: Record<string, string> = {
   SUBMITTED: 'reported the issue',
+  CLUSTERED: 'added a matching report',
   ACKNOWLEDGED: 'acknowledged it',
   IN_PROGRESS: 'started work on it',
   FORWARDED: 'forwarded it up',
@@ -29,35 +45,11 @@ function historyLine(actor: string, action: string): string {
   const what = ACTION_LABEL[action] ?? action.replace(/_/g, ' ').toLowerCase();
   return `${who} ${what}`;
 }
-import {
-  AlertCircle,
-  AlertTriangle,
-  ArrowRight,
-  Building,
-  Calendar,
-  Check,
-  CheckCircle2,
-  Loader2,
-  Search,
-  Sparkles,
-} from 'lucide-react';
 
 const ID_PATTERN = /^(CSR|REP)-\d{5}$/;
 const RECENT_KEY = 'csr_recent_tickets';
 
-const TIERS = [
-  { role: 'TEACHER', label: 'Teacher Review', hint: 'Days 0–3' },
-  { role: 'FACULTY', label: 'Faculty Escalation', hint: 'Days 3–6' },
-  { role: 'ADMINISTRATIVE', label: 'Administrative Command', hint: 'Day 6+' },
-] as const;
-
-const PIPELINE = [
-  { status: 'UNACKNOWLEDGED', label: 'Unacknowledged' },
-  { status: 'ACKNOWLEDGED', label: 'Acknowledged' },
-  { status: 'IN_PROGRESS', label: 'In Progress' },
-  { status: 'ESCALATED', label: 'Escalated' },
-  { status: 'RESOLVED', label: 'Resolved' },
-] as const;
+const TIERS = ['TEACHER', 'FACULTY', 'ADMINISTRATIVE'] as const;
 
 function readRecent(): string[] {
   try {
@@ -69,12 +61,58 @@ function readRecent(): string[] {
   }
 }
 
-function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  return `${d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}, ${d.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  })}`;
+type StageState = 'done' | 'current' | 'upcoming';
+interface Stage {
+  label: string;
+  detail?: string;
+  at?: string;
+  state: StageState;
+}
+
+/** Timeline stages backed by the ticket's real status and history only. */
+function buildStages(status: string, history: StatusHistoryView[], holder: string): Stage[] {
+  const first = (action: string) => history.find((h) => h.action === action);
+  const last = (pred: (h: StatusHistoryView) => boolean) => [...history].reverse().find(pred);
+  const submitted = first('SUBMITTED');
+  const acknowledged = last((h) => h.action === 'ACKNOWLEDGED');
+  const started = last((h) => h.action === 'IN_PROGRESS');
+  const resolved = last((h) => h.action === 'RESOLVED');
+  const escalated = last((h) => h.action === 'FORWARDED' || h.action === 'AUTO_ESCALATED');
+
+  const reviewed = ['ACKNOWLEDGED', 'IN_PROGRESS', 'RESOLVED'].includes(status);
+  const working = status === 'IN_PROGRESS' || status === 'RESOLVED';
+  const isResolved = status === 'RESOLVED';
+
+  const stages: Stage[] = [
+    { label: 'Submitted', at: submitted?.created_at, state: 'done' },
+    {
+      label: 'Under review',
+      detail: reviewed
+        ? `Acknowledged by ${ACTOR_LABEL[acknowledged?.actor_role ?? holder] ?? 'staff'}`
+        : `Waiting for ${TIER_LABEL[holder] ?? 'staff'}`,
+      at: acknowledged?.created_at,
+      state: reviewed ? 'done' : 'current',
+    },
+  ];
+  if (escalated) {
+    stages.push({
+      label: escalated.action === 'AUTO_ESCALATED' ? 'Escalated automatically' : 'Forwarded up',
+      detail: `Now with ${TIER_LABEL[holder] ?? holder}`,
+      at: escalated.created_at,
+      state: 'done',
+    });
+  }
+  stages.push(
+    {
+      label: 'Resolution in progress',
+      at: started?.created_at,
+      state: working && !isResolved ? 'current' : working ? 'done' : 'upcoming',
+    },
+    { label: 'Resolved', detail: resolved?.note ?? undefined, at: resolved?.created_at, state: isResolved ? 'done' : 'upcoming' }
+  );
+  // An escalated ticket is back to waiting for review at the new tier.
+  if (status === 'ESCALATED' || status === 'UNACKNOWLEDGED') stages[1].state = 'current';
+  return stages;
 }
 
 function TrackContent() {
@@ -136,7 +174,7 @@ function TrackContent() {
     if (!ID_PATTERN.test(id)) {
       setResult(null);
       setErrorCode('INVALID_ID');
-      setErrorMsg('Enter a tracking ID in the form CSR-12345 or REP-12345.');
+      setErrorMsg('Enter an ID like CSR-12345 or REP-12345.');
       return;
     }
     setLoading(true);
@@ -147,7 +185,7 @@ function TrackContent() {
       if (!res.ok || !data.success || !data.group) {
         setResult(null);
         setErrorCode(typeof data.code === 'string' ? data.code : 'ERROR');
-        setErrorMsg(typeof data.error === 'string' ? data.error : `No ticket found for "${id}".`);
+        setErrorMsg(typeof data.error === 'string' ? data.error : `We couldn’t find "${id}". Check the ID and try again.`);
         return;
       }
       setResult({
@@ -160,7 +198,7 @@ function TrackContent() {
     } catch {
       setResult(null);
       setErrorCode('ERROR');
-      setErrorMsg('Network error while looking up the ticket. Please retry.');
+      setErrorMsg('We couldn’t reach the server. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -184,306 +222,304 @@ function TrackContent() {
   };
 
   const group = result?.group;
-  const tierIndex = group ? TIERS.findIndex((t) => t.role === group.current_handler_role) : -1;
-  const pipelineIndex = group ? PIPELINE.findIndex((p) => p.status === group.status) : -1;
+  const tierIndex = group ? TIERS.indexOf(group.current_handler_role as (typeof TIERS)[number]) : -1;
   const isResolved = group?.status === 'RESOLVED';
-  const resolvedEntry = result?.history.filter((h) => h.action === 'RESOLVED').slice(-1)[0];
+  const stages = group && result ? buildStages(group.status, result.history, group.current_handler_role) : [];
+  const lastUpdate = result?.history.length ? result.history[result.history.length - 1].created_at : group?.created_at;
+  const tone = group ? statusTone(group.status) : 'bad';
 
   return (
-    <div className="max-w-4xl mx-auto py-10 px-4 sm:px-6 space-y-6">
+    <div className="max-w-3xl mx-auto py-10 sm:py-16 px-4 sm:px-6 space-y-5">
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        {loading ? 'Looking up ticket...' : group ? `Ticket ${group.tracking_id} loaded, status ${group.status}.` : errorMsg || ''}
+        {loading ? 'Looking up complaint…' : group ? `Complaint ${group.tracking_id} loaded, status ${group.status}.` : errorMsg || ''}
       </div>
 
       {/* Search */}
-      <section className="cs-card p-6 sm:p-8 space-y-5" aria-labelledby="track-heading">
-        <div>
-          <h1 id="track-heading" className="font-serif text-3xl sm:text-4xl text-slate-100 tracking-tight">
-            Track a complaint
-          </h1>
-          <p className="text-sm text-slate-300 mt-1">
-            Enter your ticket ID (CSR-XXXXX) or personal receipt ID (REP-XXXXX). No sign-in needed, and no name or email is
-            ever shown.
-          </p>
-        </div>
+      <motion.section
+        aria-labelledby="track-heading"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: EASE_OUT }}
+      >
+        <h1 id="track-heading" className="text-3xl sm:text-4xl font-semibold">
+          Track a complaint
+        </h1>
+        <p className="mt-2 text-fg-muted">Enter your reference (CSR-) or receipt (REP-) ID. No sign-in needed.</p>
 
-        <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3" role="search">
+        <form onSubmit={handleSubmit} className="mt-6 cs-glass p-2 flex flex-col sm:flex-row gap-2" role="search">
           <label htmlFor="track-id" className="sr-only">
-            Tracking ID
+            Reference ID
           </label>
-          <input
-            id="track-id"
-            type="text"
-            inputMode="text"
-            autoComplete="off"
-            spellCheck={false}
-            suppressHydrationWarning
-            value={searchId}
-            onChange={(e) => setSearchId(e.target.value.toUpperCase())}
-            placeholder="CSR-48291 or REP-90312"
-            aria-invalid={errorCode === 'INVALID_ID' ? true : undefined}
-            aria-describedby={errorMsg ? 'track-error' : undefined}
-            className="cs-input flex-1 rounded-full px-5 py-3.5 uppercase placeholder:normal-case placeholder:font-sans"
-          />
-          <button type="submit" disabled={loading} className="btn-primary px-8 py-3.5">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <Search className="w-4 h-4" aria-hidden="true" />}
-            <span>{loading ? 'Searching...' : 'Track'}</span>
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-muted" aria-hidden="true" />
+            <input
+              id="track-id"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              suppressHydrationWarning
+              value={searchId}
+              onChange={(e) => setSearchId(e.target.value.toUpperCase())}
+              placeholder="CSR-48291"
+              aria-invalid={errorCode === 'INVALID_ID' ? true : undefined}
+              aria-describedby={errorMsg ? 'track-error' : undefined}
+              className="cs-input h-12 pl-10 border-transparent bg-transparent font-mono uppercase placeholder:font-sans focus:ring-0 focus:border-transparent"
+            />
+          </div>
+          <button type="submit" disabled={loading} className="btn-primary h-12 px-6">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <ArrowRight className="w-4 h-4" aria-hidden="true" />}
+            <span>{loading ? 'Searching…' : 'Track'}</span>
           </button>
         </form>
 
-        {recentIds.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-slate-400 text-xs mr-1">Recent on this device:</span>
-            {recentIds.map((id) => (
-              <button key={id} type="button" onClick={() => go(id)} className="pill-tag font-mono hover:border-slate-500 hover:text-white">
+        {(recentIds.length > 0 || myReports.length > 0) && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-fg-muted">{myReports.length > 0 ? 'Your reports:' : 'Recent:'}</span>
+            {(myReports.length > 0 ? myReports.map((r) => r.tracking_id) : recentIds).slice(0, 6).map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => go(id)}
+                aria-current={group?.tracking_id === id ? 'true' : undefined}
+                className={`h-8 px-2.5 rounded-lg border font-mono text-xs transition-colors ${
+                  group?.tracking_id === id ? 'border-fg/40 text-fg bg-white/[0.06]' : 'border-line text-fg-muted hover:text-fg hover:border-line-strong'
+                }`}
+              >
                 {id}
               </button>
             ))}
           </div>
         )}
-
-        {myReports.length > 0 && (
-          <div className="pt-4 border-t border-slate-800 space-y-2">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">My reports ({myReports.length})</h2>
-            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {myReports.map((r) => (
-                <li key={r.tracking_id}>
-                  <button
-                    type="button"
-                    onClick={() => go(r.tracking_id)}
-                    aria-current={group?.tracking_id === r.tracking_id ? 'true' : undefined}
-                    className={`w-full p-3 rounded-2xl border text-left flex flex-wrap items-center justify-between gap-3 transition-colors ${
-                      group?.tracking_id === r.tracking_id ? 'border-indigo-500 bg-indigo-950/40' : 'border-slate-800 bg-slate-950/60 hover:border-slate-600'
-                    }`}
-                  >
-                    <span className="min-w-0">
-                      <span className="block font-mono text-xs font-bold text-slate-100">#{r.tracking_id}</span>
-                      <span className="block text-xs text-slate-300 truncate">{r.normalized_title}</span>
-                      {r.receipt_ids.length > 0 && (
-                        <span className="block text-xs font-mono text-slate-400 truncate">{r.receipt_ids.join(', ')}</span>
-                      )}
-                    </span>
-                    <StatusBadge status={r.status} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </section>
+      </motion.section>
 
       {/* Errors */}
-      {errorCode === 'UNTRACKABLE_GUEST' ? (
-        <div role="alert" id="track-error" className="p-5 rounded-2xl bg-amber-950/40 border border-amber-800 space-y-2">
-          <div className="flex items-center gap-2 font-semibold text-sm text-amber-100">
-            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" aria-hidden="true" />
-            Tracking unavailable for this ticket
+      {errorMsg &&
+        (errorCode === 'UNTRACKABLE_GUEST' ? (
+          <div role="alert" id="track-error" className="alert-warn flex-col">
+            <span className="font-medium">Tracking isn&apos;t available for this complaint</span>
+            <span className="text-fg-muted">{errorMsg}</span>
+            <Link href="/student/submit" className="inline-flex items-center gap-1.5 text-fg font-medium hover:underline underline-offset-4">
+              Report while signed in <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </Link>
           </div>
-          <p className="text-sm text-amber-50/90 leading-relaxed">
-            {errorMsg} Reports filed without a signed-in student account cannot be followed in the resolution pipeline.
-          </p>
-          <Link href="/student/submit" className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-200 hover:text-white underline underline-offset-4">
-            File a new report while signed in <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-          </Link>
-        </div>
-      ) : (
-        errorMsg && (
+        ) : (
           <div role="alert" id="track-error" className="alert-error items-center">
             <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
             <span>{errorMsg}</span>
           </div>
-        )
+        ))}
+
+      {/* Loading skeleton */}
+      {loading && !group && (
+        <div className="cs-card p-6 space-y-4" aria-hidden="true">
+          <div className="skeleton h-5 w-32" />
+          <div className="skeleton h-7 w-3/4" />
+          <div className="skeleton h-4 w-1/2" />
+          <div className="skeleton h-32 w-full" />
+        </div>
       )}
 
       {/* Result */}
-      {group && result && (
-        <div ref={resultRef} tabIndex={-1} className="space-y-6 focus:outline-none" aria-label={`Ticket ${group.tracking_id}`}>
-          <section className="cs-card p-6 sm:p-8 space-y-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-2">
-                <div className="text-2xl font-bold font-mono tracking-tight text-slate-100">{group.tracking_id}</div>
-                {lookedUp.startsWith('REP-') && (
-                  <p className="text-xs text-slate-400">Found via receipt {lookedUp}</p>
-                )}
+      <AnimatePresence mode="wait">
+        {group && result && (
+          <motion.div
+            key={group.tracking_id}
+            ref={resultRef}
+            tabIndex={-1}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.45, ease: EASE_OUT }}
+            className="space-y-4 focus:outline-none"
+            aria-label={`Complaint ${group.tracking_id}`}
+          >
+            {/* Summary card */}
+            <section className="cs-card p-5 sm:p-7">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <span className={`w-2.5 h-2.5 rounded-full ${TONE_DOT[tone]}`} aria-hidden="true" />
+                  <span className="font-mono text-sm text-fg-muted">{group.tracking_id}</span>
+                  {lookedUp.startsWith('REP-') && <span className="text-xs text-fg-subtle">via {lookedUp}</span>}
+                </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <UrgencyPill priority={group.priority} score={group.priority_score} calm />
                   <StatusBadge status={group.status} />
                 </div>
               </div>
-              <dl className="grid grid-cols-2 gap-3 text-right">
-                <div className="cs-inset px-4 py-2.5">
-                  <dt className="text-xs uppercase tracking-wider text-slate-400">Queue position</dt>
-                  <dd className="font-serif text-2xl text-slate-100 tabular-nums">
-                    {result.queue_position !== null ? `#${result.queue_position}` : '—'}
-                  </dd>
-                  <dd className="text-xs text-slate-400">
-                    {result.queue_position !== null ? `in ${TIER_LABEL[group.current_handler_role] || group.current_handler_role} queue` : 'closed'}
-                  </dd>
-                </div>
-                <div className="cs-inset px-4 py-2.5">
-                  <dt className="text-xs uppercase tracking-wider text-slate-400">Cluster</dt>
-                  <dd className="font-serif text-2xl text-slate-100 tabular-nums">{group.report_count}</dd>
-                  <dd className="text-xs text-slate-400">student report{group.report_count === 1 ? '' : 's'}</dd>
-                </div>
-              </dl>
-            </div>
 
-            <div>
-              <h2 className="font-serif text-2xl text-slate-100 leading-snug">{group.normalized_title || group.title}</h2>
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-300">
-                <span className="inline-flex items-center gap-1">
-                  <Building className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+              <h2 className="mt-4 text-xl sm:text-2xl font-semibold leading-snug">{group.normalized_title || group.title}</h2>
+              <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-fg-muted">
+                <span className="inline-flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4" aria-hidden="true" />
                   {group.location_zone}
                 </span>
-                <span className="font-mono text-slate-400">Filed {formatDateTime(group.created_at)}</span>
-              </div>
-            </div>
+                {group.report_count > 1 && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Users className="w-4 h-4" aria-hidden="true" />
+                    {group.report_count} reports
+                  </span>
+                )}
+              </p>
 
-            <div className="cs-inset p-4">
-              <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-indigo-200 mb-1">
-                <Sparkles className="w-3.5 h-3.5" aria-hidden="true" /> AI summary
-              </span>
-              <SummaryLines summary={group.ai_summary} />
-              <p className="text-sm text-slate-200 max-w-[34rem]">{nextStepText(group, now)}</p>
-            </div>
-
-            {group.hashtags.length > 0 && (
-              <ul className="flex flex-wrap gap-1.5" aria-label="Routing hashtags">
-                {group.hashtags.map((tag) => (
-                  <li key={tag}>
-                    <HashtagPill tag={tag} />
-                  </li>
+              <dl className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-px rounded-xl overflow-hidden border border-line bg-line">
+                {[
+                  { k: 'Filed', v: formatDate(group.created_at, false) },
+                  { k: 'With', v: TIER_LABEL[group.current_handler_role] ?? group.current_handler_role },
+                  { k: 'Queue position', v: result.queue_position !== null ? `#${result.queue_position}` : '—' },
+                  { k: 'Last updated', v: lastUpdate ? formatDate(lastUpdate) : '—' },
+                ].map((d) => (
+                  <div key={d.k} className="bg-ink-900 p-3.5 min-w-0">
+                    <dt className="text-xs text-fg-subtle">{d.k}</dt>
+                    <dd className="mt-1 text-sm font-medium truncate">{d.v}</dd>
+                  </div>
                 ))}
-              </ul>
-            )}
+              </dl>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-4 border-t border-slate-800 text-xs">
-              <span className="text-slate-300">
-                {isResolved
-                  ? 'Resolved — the escalation clock has stopped.'
-                  : `Auto-escalates ${group.current_handler_role === 'ADMINISTRATIVE' ? '(final tier)' : `to ${TIER_LABEL[TIERS[tierIndex + 1]?.role ?? ''] || 'next tier'}`} when the 72h window ends`}
-              </span>
-              <SlaChip deadline={group.stage_deadline} now={now} resolved={isResolved} />
-            </div>
-          </section>
-
-          {/* 2-axis tracker (spec 09 §2) */}
-          <section className="cs-card p-6 sm:p-8 space-y-7" aria-labelledby="progress-heading">
-            <h2 id="progress-heading" className="text-xs font-bold uppercase tracking-wider text-slate-200">
-              Progress
-            </h2>
-
-            <div className="space-y-3">
-              <h3 className="text-xs uppercase tracking-wider text-slate-400">A &mdash; Who holds the ticket</h3>
-              <ol className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                {TIERS.map((t, i) => {
-                  const current = i === tierIndex;
-                  const done = i < tierIndex;
-                  return (
-                    <li
-                      key={t.role}
-                      aria-current={current ? 'step' : undefined}
-                      className={`p-3.5 rounded-2xl border ${
-                        current
-                          ? 'border-indigo-400 bg-indigo-950/50 text-indigo-50'
-                          : done
-                          ? 'border-slate-700 bg-slate-800 text-slate-300'
-                          : 'border-slate-800 bg-slate-950/60 text-slate-400'
-                      }`}
-                    >
-                      <span className="block text-xs uppercase tracking-wider">
-                        {done ? 'Passed' : current ? (isResolved ? 'Resolved here' : 'Current tier') : 'Pending'} &bull; {t.hint}
-                      </span>
-                      <span className="flex items-center gap-1.5 mt-0.5 text-sm font-semibold">
-                        {done && <Check className="w-3.5 h-3.5" aria-hidden="true" />}
-                        {i + 1}. {t.label}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-xs uppercase tracking-wider text-slate-400">B &mdash; What is happening</h3>
-              <ol className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                {PIPELINE.map((p, i) => {
-                  const current = i === pipelineIndex;
-                  const done = i < pipelineIndex && group.status !== 'ESCALATED';
-                  return (
-                    <li
-                      key={p.status}
-                      aria-current={current ? 'step' : undefined}
-                      className={`p-2.5 rounded-xl border text-center text-xs ${
-                        current
-                          ? p.status === 'RESOLVED'
-                            ? 'border-emerald-500 bg-emerald-950/50 text-emerald-100 font-bold'
-                            : 'border-indigo-400 bg-indigo-950/50 text-indigo-50 font-bold'
-                          : done
-                          ? 'border-slate-700 bg-slate-800 text-slate-300'
-                          : 'border-slate-800 bg-slate-950/60 text-slate-400'
-                      }`}
-                    >
-                      {current && p.status === 'RESOLVED' && <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" aria-hidden="true" />}
-                      {p.label}
-                      {current && <span className="sr-only"> (current)</span>}
-                    </li>
-                  );
-                })}
-              </ol>
-            </div>
-          </section>
-
-          {resolvedEntry && (
-            <section className="p-5 rounded-2xl border border-emerald-800 bg-emerald-950/40 space-y-1" aria-label="Resolution note">
-              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-100">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" aria-hidden="true" />
-                Resolved by {TIER_LABEL[resolvedEntry.actor_role] || resolvedEntry.actor_role} &bull; {formatDateTime(resolvedEntry.created_at)}
+              <p className="mt-5 text-sm text-fg">{nextStepText(group, now)}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+                <Clock className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>{isResolved ? 'Escalation clock stopped.' : 'Escalation clock:'}</span>
+                <SlaChip deadline={group.stage_deadline} now={now} resolved={isResolved} />
               </div>
-              {resolvedEntry.note && <p className="text-sm text-emerald-50/90">{resolvedEntry.note}</p>}
             </section>
-          )}
 
-          {/* History timeline */}
-          <section className="cs-card p-6 sm:p-8 space-y-4" aria-labelledby="history-heading">
-            <h2 id="history-heading" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-200">
-              <Calendar className="w-4 h-4" aria-hidden="true" /> History
-            </h2>
-            {result.history.length === 0 ? (
-              <p className="text-sm text-slate-400">Filed. Waiting for the first review.</p>
-            ) : (
-              <ol className="relative border-l border-slate-700 ml-2 space-y-4">
-                {result.history.map((item, idx) => (
-                  <li key={`${item.created_at}-${idx}`} className="pl-5 relative">
-                    <span
-                      className={`absolute -left-[5px] top-1.5 w-2.5 h-2.5 rounded-full ${
-                        item.action === 'RESOLVED' ? 'bg-emerald-400' : item.action.includes('ESCALAT') ? 'bg-orange-400' : 'bg-slate-400'
-                      }`}
-                      aria-hidden="true"
-                    />
-                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
-                      <span className="font-semibold text-slate-100">
-                        {historyLine(item.actor_role, item.action)}
+            {/* Timeline + escalation */}
+            <section className="cs-card p-5 sm:p-7" aria-labelledby="progress-heading">
+              <h2 id="progress-heading" className="text-sm font-medium text-fg-muted">
+                Progress
+              </h2>
+              <ol className="mt-5 relative">
+                {stages.map((s, i) => {
+                  const isLast = i === stages.length - 1;
+                  const dot =
+                    s.state === 'done'
+                      ? 'bg-ok border-ok'
+                      : s.state === 'current'
+                      ? tone === 'warn'
+                        ? 'bg-warn border-warn'
+                        : 'bg-bad border-bad'
+                      : 'bg-transparent border-line-strong';
+                  return (
+                    <motion.li
+                      key={s.label}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.4, delay: 0.1 + i * 0.08, ease: EASE_OUT }}
+                      aria-current={s.state === 'current' ? 'step' : undefined}
+                      className="relative pl-9 pb-6 last:pb-0"
+                    >
+                      {!isLast && (
+                        <span className="absolute left-[9px] top-5 bottom-0 w-px bg-line" aria-hidden="true">
+                          <motion.span
+                            className="block w-full bg-ok origin-top"
+                            initial={{ scaleY: 0 }}
+                            animate={{ scaleY: s.state === 'done' && stages[i + 1].state !== 'upcoming' ? 1 : 0 }}
+                            transition={{ duration: 0.5, delay: 0.2 + i * 0.1, ease: EASE_OUT }}
+                            style={{ height: '100%' }}
+                          />
+                        </span>
+                      )}
+                      <span className={`absolute left-0 top-0.5 w-[19px] h-[19px] rounded-full border-2 flex items-center justify-center ${dot}`}>
+                        {s.state === 'done' && <Check className="w-3 h-3 text-ink-950" strokeWidth={3} aria-hidden="true" />}
+                        {s.state === 'current' && <span className="w-1.5 h-1.5 rounded-full bg-ink-950" aria-hidden="true" />}
                       </span>
-                      <time dateTime={item.created_at} className="text-slate-400">
-                        {formatDateTime(item.created_at)}
-                      </time>
-                    </div>
-                    {item.note && <p className="mt-0.5 text-sm text-slate-300">{item.note}</p>}
-                  </li>
-                ))}
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                        <span className={`text-[15px] font-medium ${s.state === 'upcoming' ? 'text-fg-subtle' : ''}`}>{s.label}</span>
+                        {s.at && (
+                          <time dateTime={s.at} className="text-xs text-fg-subtle">
+                            {formatDate(s.at)}
+                          </time>
+                        )}
+                      </div>
+                      {s.detail && <p className="mt-0.5 text-sm text-fg-muted">{s.detail}</p>}
+                      <span className="sr-only">{s.state === 'done' ? '(done)' : s.state === 'current' ? '(current)' : '(not yet)'}</span>
+                    </motion.li>
+                  );
+                })}
               </ol>
-            )}
-          </section>
-        </div>
-      )}
+
+              <div className="mt-7 pt-5 border-t border-line">
+                <h3 className="text-sm font-medium text-fg-muted">Escalation stage</h3>
+                <ol className="mt-3 grid grid-cols-3 gap-2" aria-label="Escalation tier">
+                  {TIERS.map((t, i) => {
+                    const current = i === tierIndex;
+                    const done = i < tierIndex;
+                    return (
+                      <li
+                        key={t}
+                        aria-current={current ? 'step' : undefined}
+                        className={`rounded-xl border p-3 ${
+                          current ? 'border-fg/30 bg-white/[0.05]' : done ? 'border-line bg-ink-950/50' : 'border-line/60 text-fg-subtle'
+                        }`}
+                      >
+                        <span className="block text-xs font-mono text-fg-subtle">Tier {i + 1}</span>
+                        <span className="mt-0.5 flex items-center gap-1.5 text-sm font-medium">
+                          {done && <Check className="w-3.5 h-3.5 text-fg-muted" aria-hidden="true" />}
+                          {TIER_LABEL[t]}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            </section>
+
+            {/* AI summary */}
+            <section className="cs-card p-5 sm:p-7 space-y-4" aria-labelledby="summary-heading">
+              <h2 id="summary-heading" className="text-sm font-medium text-fg-muted">
+                Summary
+              </h2>
+              <SummaryLines summary={group.ai_summary} />
+              {group.hashtags.length > 0 && (
+                <ul className="flex flex-wrap gap-1.5" aria-label="Tags">
+                  {group.hashtags.map((tag) => (
+                    <li key={tag}>
+                      <HashtagPill tag={tag} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {/* Update log */}
+            <section className="cs-card p-5 sm:p-7" aria-labelledby="history-heading">
+              <h2 id="history-heading" className="text-sm font-medium text-fg-muted">
+                Updates
+              </h2>
+              {result.history.length === 0 ? (
+                <p className="mt-3 text-sm text-fg-muted">Submitted. Waiting for the first review.</p>
+              ) : (
+                <ol className="mt-4 divide-y divide-line">
+                  {[...result.history].reverse().map((item, idx) => (
+                    <li key={`${item.created_at}-${idx}`} className="py-3 first:pt-0 last:pb-0">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                        <span className="text-sm font-medium">{historyLine(item.actor_role, item.action)}</span>
+                        <time dateTime={item.created_at} className="text-xs text-fg-subtle">
+                          {formatDate(item.created_at)}
+                        </time>
+                      </div>
+                      {item.note && <p className="mt-0.5 text-sm text-fg-muted">{item.note}</p>}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 export default function TrackPage() {
   return (
-    <Suspense fallback={<div className="p-12 text-center text-xs text-slate-400">Loading tracker...</div>}>
+    <Suspense
+      fallback={
+        <div className="py-24 flex justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-fg-muted" aria-label="Loading" />
+        </div>
+      }
+    >
       <TrackContent />
     </Suspense>
   );

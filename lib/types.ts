@@ -134,6 +134,18 @@ export interface StudentReportView extends ComplaintGroupView {
   queue_position: number | null;
 }
 
+/** Campus-wide complaint counts (staff overview). Unresolved = UNACKNOWLEDGED + ESCALATED. */
+export interface CampusStats {
+  total: number;
+  resolved: number;
+  /** ACKNOWLEDGED + IN_PROGRESS */
+  inProgress: number;
+  unresolved: number;
+  /** Open and CRITICAL or safety-critical. */
+  urgent: number;
+  newToday: number;
+}
+
 /** Spec 05 damage-prone hotspot aggregation (+ the hazard list the radar widget renders). */
 export interface DamageHotspot {
   location_zone: string;

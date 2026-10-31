@@ -2,34 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Campus Speedrun — dark slate system (see DESIGN.md).
-   Ground slate-950, surfaces slate-900/800, text slate-100/300/400, borders slate-800/700.
-   Urgency: CRITICAL red (pulsing), HIGH amber, MEDIUM indigo, LOW slate. */
+/* Campus Pulse+ — ink system (see DESIGN.md).
+   Ground #08090B, surfaces #111318 / #181A20, text #F5F5F5 / #A1A1AA, borders #292B32.
+   Signals: ok #22C55E (resolved), warn #EAB308 (in progress), bad #EF4444 (unresolved). */
 @layer base {
   :root {
     color-scheme: dark;
-    --bg-ground: #020617; /* slate-950 */
-    --bg-surface: #0f172a; /* slate-900 */
-    --bg-raised: #1e293b; /* slate-800 */
-    --border: #1e293b; /* slate-800 */
-    --border-strong: #334155; /* slate-700 */
-    --text-primary: #f1f5f9; /* slate-100 */
-    --text-secondary: #cbd5e1; /* slate-300 */
-    --text-muted: #94a3b8; /* slate-400 */
-    --focus: #818cf8; /* indigo-400 */
-    --selection: rgba(129, 140, 248, 0.35); /* indigo-400 @ 35% */
+    --bg-ground: #08090b;
+    --bg-surface: #111318;
+    --bg-raised: #181a20;
+    --border: #292b32;
+    --text-primary: #f5f5f5;
+    --text-muted: #a1a1aa;
+    --focus: #c3cddd;
+    --selection: rgba(195, 205, 221, 0.28);
   }
 
   html {
     background-color: var(--bg-ground);
-    scrollbar-color: var(--border-strong) var(--bg-ground);
+    scrollbar-color: var(--border) var(--bg-ground);
   }
 
   body {
     background-color: var(--bg-ground);
     color: var(--text-primary);
-    font-family: var(--font-sans), "Plus Jakarta Sans", sans-serif;
+    font-family: var(--font-sans), "Geist", sans-serif;
+    font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
   }
 
@@ -48,35 +48,26 @@
   h2,
   h3 {
     text-wrap: balance;
+    letter-spacing: -0.02em;
   }
 
   p {
     text-wrap: pretty;
   }
 
-  * {
-    caret-color: var(--focus);
-  }
-
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
-
   ::-webkit-scrollbar-track {
-    background: var(--bg-ground);
+    background: transparent;
   }
-
   ::-webkit-scrollbar-thumb {
-    background: var(--border-strong);
+    background: var(--border);
     border-radius: 9999px;
+    border: 2px solid var(--bg-ground);
   }
 
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
-  }
-
-  /* Visible focus ring on every keyboard-focusable control */
   :focus-visible {
     outline: 2px solid var(--focus);
     outline-offset: 2px;
@@ -89,81 +80,144 @@
 }
 
 @layer components {
-  /* Surface cards */
+  /* Surfaces */
   .cs-card {
-    @apply bg-slate-900 border border-slate-800 rounded-3xl shadow-xl shadow-black/30;
+    @apply bg-ink-900/85 border border-line rounded-2xl shadow-card;
   }
   .cs-inset {
-    @apply bg-slate-950/60 border border-slate-800 rounded-2xl;
+    @apply bg-ink-950/60 border border-line rounded-xl;
+  }
+  /* Translucent surface for content sitting on the particle field. */
+  .cs-glass {
+    @apply bg-ink-900/70 border border-white/[0.08] rounded-2xl shadow-lift backdrop-blur-xl;
   }
 
   /* Form controls */
   .cs-input {
-    @apply w-full px-4 py-2.5 bg-slate-950 border border-slate-600 text-slate-100 text-sm rounded-xl
-      placeholder:text-slate-400 transition-colors
-      focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/40
-      aria-[invalid=true]:border-red-500 aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-red-500/30;
+    @apply w-full h-11 px-3.5 bg-ink-950/70 border border-line text-fg text-sm rounded-xl
+      placeholder:text-fg-subtle transition-[border-color,box-shadow] duration-150
+      hover:border-line-strong
+      focus:outline-none focus:border-steel/70 focus:ring-4 focus:ring-steel/10
+      aria-[invalid=true]:border-bad/70 aria-[invalid=true]:ring-4 aria-[invalid=true]:ring-bad/10;
+  }
+  textarea.cs-input {
+    @apply h-auto py-3 leading-relaxed;
+  }
+  .cs-field-label {
+    @apply block text-[13px] font-medium text-fg mb-1.5;
+  }
+  .cs-hint {
+    @apply mt-1.5 text-xs text-fg-muted;
   }
 
   /* Buttons */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-slate-100 text-slate-950 font-semibold
-      text-xs tracking-wider uppercase transition-colors hover:bg-white
-      disabled:bg-slate-400 disabled:text-slate-950 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl bg-fg text-ink-950 text-sm font-medium
+      transition-[background-color,transform,box-shadow] duration-150 ease-out
+      hover:bg-white hover:shadow-[0_0_0_4px_rgba(255,255,255,0.06)] active:scale-[0.98]
+      disabled:bg-fg-muted disabled:cursor-not-allowed disabled:active:scale-100;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-full border border-slate-700 text-slate-200 font-semibold
-      text-xs tracking-wide transition-colors hover:border-slate-500 hover:bg-slate-800 hover:text-white
-      disabled:border-slate-800 disabled:text-slate-400 disabled:bg-transparent disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-line bg-ink-800/60 text-fg text-sm font-medium
+      transition-[background-color,border-color,transform] duration-150 ease-out
+      hover:bg-ink-700 hover:border-line-strong active:scale-[0.98]
+      disabled:text-fg-subtle disabled:bg-transparent disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 h-10 px-3 rounded-xl text-sm font-medium text-fg-muted
+      transition-colors duration-150 hover:text-fg hover:bg-white/[0.04];
+  }
+  .btn-icon {
+    @apply inline-flex items-center justify-center w-10 h-10 rounded-xl border border-line bg-ink-800/60 text-fg-muted
+      transition-colors duration-150 hover:text-fg hover:bg-ink-700 hover:border-line-strong;
   }
   /* Positive terminal action (Resolve). */
   .btn-resolve {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-700 text-white text-xs font-semibold
-      transition-colors hover:bg-emerald-600
-      disabled:bg-emerald-950 disabled:text-emerald-200 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl bg-ok text-ink-950 text-sm font-semibold
+      transition-[background-color,transform] duration-150 hover:bg-ok-soft active:scale-[0.98]
+      disabled:opacity-60 disabled:cursor-not-allowed;
   }
 
-  /* Small uppercase label role (section labels, field captions). Sans, not mono:
-     mono is reserved for data — ticket IDs, scores, timestamps, hashtags. */
+  /* Small label role (section eyebrows). Sentence case — no shouting. */
   .cs-label {
-    @apply text-xs font-semibold uppercase tracking-wider;
+    @apply text-xs font-medium text-fg-muted;
   }
 
-  /* Neutral pill */
   .pill-tag {
-    @apply inline-flex items-center px-3 py-1 rounded-full text-xs bg-slate-800 border border-slate-700 text-slate-300;
+    @apply inline-flex items-center h-7 px-2.5 rounded-lg text-xs bg-ink-800 border border-line text-fg-muted;
   }
 
-  /* Spec 08 §4 hashtag pill */
   .hashtag-pill {
-    @apply inline-flex items-center max-w-full px-2.5 py-0.5 rounded-full text-xs font-mono bg-indigo-950 text-indigo-300 border border-indigo-800 [overflow-wrap:anywhere];
+    @apply inline-flex items-center max-w-full h-6 px-2 rounded-md text-xs font-mono bg-white/[0.04] text-fg-muted border border-line [overflow-wrap:anywhere];
   }
 
   /* Alerts */
   .alert-error {
-    @apply p-3.5 bg-red-950/50 border border-red-800 text-red-200 text-xs rounded-xl flex items-start gap-2;
+    @apply p-3 bg-bad/[0.08] border border-bad/30 text-bad-soft text-sm rounded-xl flex items-start gap-2.5;
   }
   .alert-success {
-    @apply p-3.5 bg-emerald-950/50 border border-emerald-800 text-emerald-200 text-xs rounded-xl flex items-start gap-2;
+    @apply p-3 bg-ok/[0.08] border border-ok/30 text-ok-soft text-sm rounded-xl flex items-start gap-2.5;
   }
   .alert-warn {
-    @apply p-3.5 bg-amber-950/50 border border-amber-800 text-amber-100 text-xs rounded-xl flex items-start gap-2;
+    @apply p-3 bg-warn/[0.07] border border-warn/25 text-warn-soft text-sm rounded-xl flex items-start gap-2.5;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-white/[0.04];
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+    animation: shimmer 1.6s infinite;
   }
 }
 
-/* Reduced motion: stop decorative loops and spatial movement, but keep
-   colour/opacity state changes and a visible (slowed) loading spinner so
-   "in progress" feedback never disappears. */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Logo plus: a slow, quiet pulse. */
+@keyframes plus-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.86);
+  }
+}
+.logo-plus {
+  transform-origin: center;
+  transform-box: fill-box;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.logo-plus-idle {
+  animation: plus-pulse 4.5s ease-in-out infinite;
+}
+.group:hover .logo-plus {
+  animation: none;
+  transform: rotate(90deg);
+}
+
+/* Reduced motion: stop decorative loops and spatial movement, keep colour /
+   opacity state changes and a slowed loading spinner so progress stays visible. */
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse,
-  .animate-ping {
+  .animate-ping,
+  .logo-plus-idle,
+  .skeleton::after {
     animation: none !important;
   }
-
   .animate-spin {
     animation-duration: 2.5s !important;
   }
-
   *,
   *::before,
   *::after {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
+  CampusStats,
   COMPLAINT_GROUP_VIEW_FIELDS,
   ComplaintGroupView,
   ComplaintPriority,
@@ -241,7 +242,7 @@ export async function insertComplaint(input: {
   imageUrl: string | null;
   documentUrl: string | null;
   attachmentName: string | null;
-  studentId: string;
+  studentId: string | null;
   triage: GeminiTriageOutput;
   activeClusterIds: string[];
 }): Promise<{
@@ -329,7 +330,7 @@ export async function insertComplaint(input: {
       status: 'UNACKNOWLEDGED' as const,
       report_count: 1,
       student_id: input.studentId,
-      can_track: true,
+      can_track: Boolean(input.studentId),
     };
 
     for (let attempt = 0; attempt < 5 && !group; attempt++) {
@@ -556,6 +557,8 @@ export async function getStaffDashboard(
   filter: { hashtag?: string; locationZone?: string; department?: DepartmentCode } = {}
 ): Promise<{
   complaints: ComplaintGroupView[];
+  /** Open complaints at every tier (Contract C view), for the read-only hierarchy view. */
+  allOpen: ComplaintGroupView[];
   hotspots: DamageHotspot[];
   notifications: NotificationItem[];
   escalated: number;
@@ -606,9 +609,49 @@ export async function getStaffDashboard(
 
   return {
     complaints,
+    allOpen: [...openGroups].sort(compareQueue),
     hotspots: aggregateHotspots(openGroups),
     notifications,
     escalated,
+  };
+}
+
+/**
+ * Campus-wide counts for the staff overview (activity rings + metric cards) and
+ * the most recently resolved tickets. Aggregates and the Contract C view only.
+ */
+export async function getCampusStats(): Promise<{ stats: CampusStats; recentResolved: ComplaintGroupView[] }> {
+  assertConfigured();
+  const [countsResult, resolvedResult] = await Promise.all([
+    supabaseAdmin.from('complaint_groups').select('status, priority, is_safety_critical, created_at'),
+    supabaseAdmin
+      .from('complaint_groups')
+      .select(GROUP_VIEW_COLUMNS)
+      .eq('status', 'RESOLVED')
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ]);
+  if (countsResult.error) dbFail('loading campus stats', countsResult.error);
+  if (resolvedResult.error) dbFail('loading resolved complaints', resolvedResult.error);
+
+  const rows = (countsResult.data || []) as Array<{
+    status: ComplaintStatus;
+    priority: ComplaintPriority;
+    is_safety_critical: boolean;
+    created_at: string;
+  }>;
+  const now = Date.now();
+  const stats: CampusStats = { total: rows.length, resolved: 0, inProgress: 0, unresolved: 0, urgent: 0, newToday: 0 };
+  for (const r of rows) {
+    if (r.status === 'RESOLVED') stats.resolved++;
+    else if (r.status === 'ACKNOWLEDGED' || r.status === 'IN_PROGRESS') stats.inProgress++;
+    else stats.unresolved++;
+    if (r.status !== 'RESOLVED' && (r.priority === 'CRITICAL' || r.is_safety_critical)) stats.urgent++;
+    if (now - Date.parse(r.created_at) < 86_400_000) stats.newToday++;
+  }
+  return {
+    stats,
+    recentResolved: ((resolvedResult.data || []) as unknown as Record<string, unknown>[]).map(toGroupView),
   };
 }
 
@@ -790,7 +833,7 @@ export async function trackComplaint(rawId: string): Promise<TrackedComplaintVie
   if (!group.can_track) {
     throw new StoreError(
       422,
-      `Tracking unavailable: Ticket #${group.tracking_id} cannot be tracked in the resolution pipeline.`,
+      `Tracking unavailable: Ticket #${group.tracking_id} cannot be tracked because it was submitted as an untracked guest report. Only complaints submitted while signed in to an account can be tracked.`,
       'UNTRACKABLE_GUEST'
     );
   }

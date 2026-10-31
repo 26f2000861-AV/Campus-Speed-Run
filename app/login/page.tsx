@@ -2,68 +2,88 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { AnimatePresence, motion } from 'framer-motion';
 import { UserRole, DepartmentCode } from '@/lib/types';
 import { useAuth, homePathForRole } from '@/lib/auth-context';
-import {
-  AlertCircle,
-  CheckCircle2,
-  ArrowRight,
-  ShieldCheck,
-  User,
-  Key,
-} from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Lock, Mail, User } from 'lucide-react';
+import Logo from '@/components/Logo';
+import { EASE_OUT } from '@/components/motion';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const reveal = {
+  initial: { opacity: 0, height: 0 },
+  animate: { opacity: 1, height: 'auto' },
+  exit: { opacity: 0, height: 0 },
+  transition: { duration: 0.25, ease: EASE_OUT },
+};
 
 function LoginFormContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading, login: setAuthUser } = useAuth();
 
-  // Portal selection: STUDENT vs STAFF
-  const initialPortal = searchParams.get('portal') === 'staff' ? 'STAFF' : 'STUDENT';
-  const [portal, setPortal] = useState<'STUDENT' | 'STAFF'>(initialPortal);
+  // Account type only matters when registering (sign-in is the same for everyone;
+  // the role always comes from the server).
+  const [portal, setPortal] = useState<'STUDENT' | 'STAFF'>(searchParams.get('portal') === 'staff' ? 'STAFF' : 'STUDENT');
+  const [mode, setMode] = useState<'LOGIN' | 'REGISTER'>(searchParams.get('mode') === 'register' ? 'REGISTER' : 'LOGIN');
 
-  // Auth mode: LOGIN vs REGISTER
-  const [mode, setMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
-
-  // Form state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<UserRole>('TEACHER');
   const [departmentCode, setDepartmentCode] = useState<DepartmentCode>('BTECH');
   const [staffCode, setStaffCode] = useState('');
+  const [touched, setTouched] = useState<{ email?: boolean; password?: boolean }>({});
+  const [attempted, setAttempted] = useState(false);
 
-  // UI state
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // If already logged in (server-verified via /api/auth/me), redirect per spec 01 §4
+  // Already signed in (server-verified via /api/auth/me): go to the role's home (spec 01 §4).
   useEffect(() => {
-    if (!authLoading && user) {
-      router.replace(homePathForRole(user.role));
-    }
+    if (!authLoading && user) router.replace(homePathForRole(user.role));
   }, [user, authLoading, router]);
+
+  // Blur-first validation; an untouched empty field only errors after a submit attempt.
+  const emailError =
+    (attempted || (touched.email && email !== '')) && !EMAIL_RE.test(email.trim()) ? 'Enter a valid email address.' : null;
+  const passwordError =
+    (attempted || (touched.password && password !== '')) && password.length < 8 ? 'Use at least 8 characters.' : null;
+
+  const switchMode = (m: 'LOGIN' | 'REGISTER') => {
+    setMode(m);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setAttempted(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
+    setTouched({ email: true, password: true });
+    setAttempted(true);
 
-    // Validation for Staff Registration
-    if (portal === 'STAFF' && mode === 'REGISTER') {
-      if (!staffCode.trim()) {
-        setErrorMsg('Unique Staff Registration Code is required. Codes must be issued via the /admin authority.');
-        return;
-      }
+    if (!EMAIL_RE.test(email.trim())) return document.getElementById('email')?.focus();
+    if (password.length < 8) return document.getElementById('password')?.focus();
+
+    const staffRegister = portal === 'STAFF' && mode === 'REGISTER';
+    if (staffRegister && !fullName.trim()) {
+      setErrorMsg('Enter your full name.');
+      return document.getElementById('fullName')?.focus();
+    }
+    if (staffRegister && !staffCode.trim()) {
+      setErrorMsg('Enter the registration code from campus administration.');
+      return document.getElementById('staffCode')?.focus();
     }
 
     setLoading(true);
-
     try {
       const endpoint = mode === 'REGISTER' ? '/api/auth/register' : '/api/auth/login';
       const assignedRole = portal === 'STAFF' ? role : 'STUDENT';
-
       const payload =
         mode === 'REGISTER'
           ? {
@@ -74,307 +94,300 @@ function LoginFormContent() {
               department_code: assignedRole !== 'STUDENT' ? departmentCode : null,
               staffCode: portal === 'STAFF' ? staffCode.trim() : undefined,
             }
-          : {
-              email: email.trim().toLowerCase(),
-              password,
-            };
+          : { email: email.trim().toLowerCase(), password };
 
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok || !data.success || !data.user) {
-        throw new Error(data.error || 'Authentication failed. Please check your credentials.');
+        throw new Error(data.error || 'Sign-in failed. Check your email and password and try again.');
       }
 
       // Account created but no session could be established: ask the user to sign in.
       if (mode === 'REGISTER' && data.session === false) {
-        setMode('LOGIN');
+        switchMode('LOGIN');
         setPassword('');
-        setSuccessMsg(data.error || 'Account created. Please sign in.');
+        setSuccessMsg(data.error || 'Account created. Sign in to continue.');
         return;
       }
 
       // The API set httpOnly session cookies; role/department come from the server only.
-      const serverUser = data.user as {
-        id: string;
-        email: string;
-        role: UserRole;
-        department_code: DepartmentCode | null;
-      };
-      setAuthUser({
-        id: serverUser.id,
-        email: serverUser.email,
-        role: serverUser.role,
-        department_code: serverUser.department_code,
-      });
-
-      setSuccessMsg(
-        mode === 'REGISTER'
-          ? 'Account verified and created. Redirecting...'
-          : 'Signed in successfully. Redirecting...'
-      );
-
-      router.push(
-        typeof data.redirect === 'string' && data.redirect.startsWith('/')
-          ? data.redirect
-          : homePathForRole(serverUser.role)
-      );
+      const serverUser = data.user as { id: string; email: string; role: UserRole; department_code: DepartmentCode | null };
+      setAuthUser({ id: serverUser.id, email: serverUser.email, role: serverUser.role, department_code: serverUser.department_code });
+      setSuccessMsg(mode === 'REGISTER' ? 'Account created. Taking you in…' : 'Signed in. Taking you in…');
+      router.push(typeof data.redirect === 'string' && data.redirect.startsWith('/') ? data.redirect : homePathForRole(serverUser.role));
     } catch (err: any) {
-      setErrorMsg(err.message || 'An error occurred during authentication.');
+      setErrorMsg(err.message || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const register = mode === 'REGISTER';
+  const title = register ? 'Create your account' : portal === 'STAFF' ? 'Staff sign in' : 'Welcome back';
+  const subtitle = register
+    ? portal === 'STAFF'
+      ? 'Staff accounts need a code from administration.'
+      : 'Your name is never shown to staff.'
+    : 'Sign in to report and track campus issues.';
+
   return (
-    <div className="flex-1 flex flex-col justify-center items-center py-12 px-4 sm:px-6">
-      <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-8 sm:p-10 rounded-3xl shadow-xl relative">
-
-        {/* Portal Switcher (STUDENT vs STAFF COCKPIT) */}
-        <div className="flex items-center justify-center p-1 rounded-full bg-slate-800 border border-slate-800 mb-6">
-          <button
-            type="button"
-            onClick={() => {
-              setPortal('STUDENT');
-              setErrorMsg(null);
-              setSuccessMsg(null);
-            }}
-            className={`flex-1 py-1.5 text-xs font-semibold rounded-full flex items-center justify-center gap-1.5 transition-all ${
-              portal === 'STUDENT'
-                ? 'bg-slate-700 text-white shadow-sm border border-slate-600 font-bold'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <User className="w-3.5 h-3.5" />
-            <span>Student Portal</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setPortal('STAFF');
-              setErrorMsg(null);
-              setSuccessMsg(null);
-            }}
-            className={`flex-1 py-1.5 text-xs font-semibold rounded-full flex items-center justify-center gap-1.5 transition-all ${
-              portal === 'STAFF'
-                ? 'bg-slate-700 text-white shadow-sm border border-slate-600 font-bold'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-slate-300" />
-            <span>Staff Cockpit</span>
-          </button>
+    <div className="min-h-[100svh] flex flex-col items-center justify-center px-4 sm:px-6 py-16">
+      <motion.div
+        initial={{ opacity: 0, y: 20, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.7, ease: EASE_OUT }}
+        className="cs-glass w-full max-w-[400px] p-6 sm:p-8"
+      >
+        <div className="group flex justify-center">
+          <Logo size="md" />
         </div>
 
-        {/* Header */}
-        <div className="text-center mb-6">
-          <h1 className="font-serif text-3xl font-normal text-slate-100 tracking-tight">
-            {portal === 'STAFF' ? 'Staff Portal' : 'Welcome Back'}
-          </h1>
-          <p className="text-xs text-slate-300 mt-1">
-            {portal === 'STAFF'
-              ? 'Authorized access for department teachers, faculty, and administrators.'
-              : 'Sign in to file anonymous reports or track resolution status.'}
-          </p>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={title}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.2 }}
+            className="mt-7 text-center"
+          >
+            <h1 className="text-2xl font-semibold text-fg">{title}</h1>
+            <p className="mt-1.5 text-sm text-fg-muted">{subtitle}</p>
+          </motion.div>
+        </AnimatePresence>
+
+        <div aria-live="polite">
+          <AnimatePresence initial={false}>
+            {errorMsg && (
+              <motion.div key="err" role="alert" {...reveal} className="overflow-hidden">
+                <div className="alert-error mt-5">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>{errorMsg}</span>
+                </div>
+              </motion.div>
+            )}
+            {successMsg && (
+              <motion.div key="ok" role="status" {...reveal} className="overflow-hidden">
+                <div className="alert-success mt-5">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>{successMsg}</span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* Pill Toggle (LOGIN vs REGISTER) */}
-        <div className="flex p-1 rounded-full bg-slate-800 border border-slate-800 mb-6">
-          <button
-            type="button"
-            onClick={() => {
-              setMode('LOGIN');
-              setErrorMsg(null);
-            }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-full transition-all ${
-              mode === 'LOGIN'
-                ? 'bg-slate-100 text-slate-950 shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode('REGISTER');
-              setErrorMsg(null);
-            }}
-            className={`flex-1 py-2 text-xs font-semibold rounded-full transition-all ${
-              mode === 'REGISTER'
-                ? 'bg-slate-100 text-slate-950 shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            {portal === 'STAFF' ? 'Staff Register' : 'Register'}
-          </button>
-        </div>
+        <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-4">
+          {/* Registration-only: account type, then name. */}
+          <AnimatePresence initial={false}>
+            {register && (
+              <motion.div key="reg" {...reveal} className="overflow-hidden">
+                <div className="space-y-4 pb-1">
+                  <div role="radiogroup" aria-label="Account type" className="grid grid-cols-2 p-1 rounded-xl bg-ink-950/70 border border-line">
+                    {(['STUDENT', 'STAFF'] as const).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        role="radio"
+                        aria-checked={portal === p}
+                        onClick={() => setPortal(p)}
+                        className={`relative h-9 rounded-lg text-sm font-medium transition-colors ${portal === p ? 'text-fg' : 'text-fg-muted hover:text-fg'}`}
+                      >
+                        {portal === p && (
+                          <motion.span
+                            layoutId="seg-portal"
+                            className="absolute inset-0 rounded-lg bg-white/[0.09] border border-white/[0.08]"
+                            transition={{ type: 'spring', stiffness: 450, damping: 38 }}
+                          />
+                        )}
+                        <span className="relative">{p === 'STUDENT' ? 'Student' : 'Staff'}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div>
+                    <label htmlFor="fullName" className="cs-field-label">
+                      Full name {portal === 'STUDENT' && <span className="text-fg-muted font-normal">(optional)</span>}
+                    </label>
+                    <div className="relative">
+                      <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-muted" aria-hidden="true" />
+                      <input
+                        type="text"
+                        suppressHydrationWarning
+                        id="fullName"
+                        autoComplete="name"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        className="cs-input pl-10"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-        {/* Alerts */}
-        {errorMsg && (
-          <div role="alert" className="mb-4 p-3 bg-red-950/50 border border-red-800 text-red-200 text-xs rounded-xl flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-300 shrink-0 mt-0.5" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-
-        {successMsg && (
-          <div role="status" className="mb-4 p-3 bg-emerald-950/40 border border-emerald-800 text-emerald-200 text-xs rounded-xl flex items-start gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span>{successMsg}</span>
-          </div>
-        )}
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {mode === 'REGISTER' && (
-            <div>
-              <label htmlFor="fullName" className="block text-xs font-medium text-slate-300 mb-1.5">
-                Full Name
-              </label>
+          <div>
+            <label htmlFor="email" className="cs-field-label">
+              Email
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-muted" aria-hidden="true" />
               <input
-                type="text"
-                required={portal === 'STAFF'}
+                type="email"
+                required
                 suppressHydrationWarning
-                id="fullName"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder={portal === 'STAFF' ? 'Dr. Sarah Connor' : 'Alex Johnson (Optional)'}
-                className="cs-input"
+                id="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onBlur={() => setTouched((t) => ({ ...t, email: true }))}
+                placeholder="you@university.edu"
+                aria-invalid={emailError ? true : undefined}
+                aria-describedby={emailError ? 'email-error' : undefined}
+                className="cs-input pl-10"
               />
             </div>
-          )}
-
-          <div>
-            <label htmlFor="email" className="block text-xs font-medium text-slate-300 mb-1.5">
-              Institutional Email *
-            </label>
-            <input
-              type="email"
-              required
-              suppressHydrationWarning
-              id="email"
-                value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={portal === 'STAFF' ? 'coordinator@university.edu' : 'student@university.edu'}
-              className="cs-input"
-            />
+            {emailError && (
+              <p id="email-error" className="mt-1.5 text-xs text-bad-soft">
+                {emailError}
+              </p>
+            )}
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-xs font-medium text-slate-300 mb-1.5">
-              Password (8+ Characters) *
+            <label htmlFor="password" className="cs-field-label">
+              Password
             </label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              suppressHydrationWarning
-              id="password"
+            <div className="relative">
+              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-muted" aria-hidden="true" />
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                minLength={8}
+                suppressHydrationWarning
+                id="password"
+                autoComplete={register ? 'new-password' : 'current-password'}
                 value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
-              className="cs-input font-mono"
-            />
-          </div>
-
-          {/* STAFF COCKPIT REGISTRATION FIELDS */}
-          {portal === 'STAFF' && mode === 'REGISTER' && (
-            <div className="space-y-4 pt-2 border-t border-slate-800">
-              <div>
-                <label htmlFor="staffCode" className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Key className="w-3.5 h-3.5 text-slate-300" />
-                  <span>Unique Staff Registration Code *</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  suppressHydrationWarning
-                  id="staffCode"
-                value={staffCode}
-                  onChange={(e) => setStaffCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. STAFF-TC-9182"
-                  className="cs-input font-mono uppercase tracking-wider"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  Required: Issued exclusively by Campus Administration via <span className="font-mono text-slate-200 font-semibold">/admin</span>.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="role" className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Role Tier *
-                  </label>
-                  <select
-                    id="role"
-                value={role}
-                    onChange={(e) => setRole(e.target.value as UserRole)}
-                    className="cs-input"
-                  >
-                    <option value="TEACHER">Tier 1: Teacher</option>
-                    <option value="FACULTY">Tier 2: Faculty</option>
-                    <option value="ADMINISTRATIVE">Tier 3: Admin</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="departmentCode" className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Department *
-                  </label>
-                  <select
-                    id="departmentCode"
-                value={departmentCode}
-                    onChange={(e) => setDepartmentCode(e.target.value as DepartmentCode)}
-                    className="cs-input"
-                  >
-                    <option value="BTECH">BTECH</option>
-                    <option value="MCA">MCA</option>
-                    <option value="SCI">SCI</option>
-                    <option value="INFRA">INFRA</option>
-                    <option value="IT">IT</option>
-                    <option value="SAN">SAN</option>
-                  </select>
-                </div>
-              </div>
+                onChange={(e) => setPassword(e.target.value)}
+                onBlur={() => setTouched((t) => ({ ...t, password: true }))}
+                aria-invalid={passwordError ? true : undefined}
+                aria-describedby={passwordError ? 'password-error' : register ? 'password-hint' : undefined}
+                className="cs-input pl-10 pr-11"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg inline-flex items-center justify-center text-fg-muted hover:text-fg hover:bg-white/[0.06]"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+              </button>
             </div>
-          )}
-
-          <div className="pt-3">
-            <button
-              type="submit"
-              disabled={loading}
-              suppressHydrationWarning
-              className="btn-primary w-full py-3.5 px-6"
-            >
-              <span>
-                {loading
-                  ? 'Processing...'
-                  : mode === 'LOGIN'
-                  ? portal === 'STAFF'
-                    ? 'Access Staff Cockpit'
-                    : 'Sign In'
-                  : portal === 'STAFF'
-                  ? 'Verify Key & Register'
-                  : 'Create Account'}
-              </span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {passwordError ? (
+              <p id="password-error" className="mt-1.5 text-xs text-bad-soft">
+                {passwordError}
+              </p>
+            ) : (
+              register && (
+                <p id="password-hint" className="cs-hint">
+                  At least 8 characters.
+                </p>
+              )
+            )}
           </div>
+
+          {/* Staff registration only */}
+          <AnimatePresence initial={false}>
+            {register && portal === 'STAFF' && (
+              <motion.div key="staff" {...reveal} className="overflow-hidden">
+                <div className="space-y-4 pt-4 border-t border-line">
+                  <div>
+                    <label htmlFor="staffCode" className="cs-field-label">
+                      Registration code
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-muted" aria-hidden="true" />
+                      <input
+                        type="text"
+                        suppressHydrationWarning
+                        id="staffCode"
+                        autoComplete="off"
+                        value={staffCode}
+                        onChange={(e) => setStaffCode(e.target.value.toUpperCase())}
+                        placeholder="STAFF-TC-9182"
+                        className="cs-input pl-10 font-mono uppercase tracking-wide"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="role" className="cs-field-label">
+                        Role
+                      </label>
+                      <select id="role" value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="cs-input">
+                        <option value="TEACHER">Teacher</option>
+                        <option value="FACULTY">Faculty</option>
+                        <option value="ADMINISTRATIVE">Administration</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="departmentCode" className="cs-field-label">
+                        Department
+                      </label>
+                      <select
+                        id="departmentCode"
+                        value={departmentCode}
+                        onChange={(e) => setDepartmentCode(e.target.value as DepartmentCode)}
+                        className="cs-input"
+                      >
+                        <option value="BTECH">B.Tech</option>
+                        <option value="MCA">MCA</option>
+                        <option value="SCI">Applied Sciences</option>
+                        <option value="INFRA">Infrastructure</option>
+                        <option value="IT">IT &amp; Network</option>
+                        <option value="SAN">Sanitation</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <button type="submit" disabled={loading} suppressHydrationWarning className="btn-primary w-full h-11 !mt-6 group/cta">
+            {loading && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
+            <span>{loading ? (register ? 'Creating account…' : 'Signing in…') : register ? 'Create account' : 'Sign in'}</span>
+            {!loading && <ArrowRight className="w-4 h-4 transition-transform group-hover/cta:translate-x-0.5" aria-hidden="true" />}
+          </button>
         </form>
 
-        <div className="mt-6 pt-4 border-t border-slate-800 text-center">
-          <span className="text-xs text-slate-400">
-            Encrypted credentials &bull; Zero tracking
-          </span>
-        </div>
-      </div>
+        <p className="mt-6 text-center text-sm text-fg-muted">
+          {register ? 'Already have an account?' : 'New here?'}{' '}
+          <button
+            type="button"
+            onClick={() => switchMode(register ? 'LOGIN' : 'REGISTER')}
+            className="font-medium text-fg underline-offset-4 hover:underline"
+          >
+            {register ? 'Sign in' : 'Create an account'}
+          </button>
+        </p>
+      </motion.div>
+
+      <motion.a
+        href="/"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.6 }}
+        className="mt-6 inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg"
+      >
+        <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Back to home
+      </motion.a>
     </div>
   );
 }
@@ -383,8 +396,8 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-[calc(100vh-140px)] flex items-center justify-center text-xs text-slate-400">
-          Loading authentication portal...
+        <div className="min-h-[100svh] flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-fg-muted" aria-label="Loading" />
         </div>
       }
     >
