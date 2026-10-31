@@ -115,20 +115,25 @@ export function ActivityRings({
 export function CountUp({ value }: { value: number }) {
   const reduce = useReducedMotion();
   const [shown, setShown] = useState(reduce ? value : 0);
-  const from = useRef(0);
+  // Tweens from what is on screen, not from the last target: a cancelled run
+  // (Strict Mode's double effect, or a refresh mid-tween) resumes instead of
+  // leaving the number stuck at 0.
+  const current = useRef(shown);
   useEffect(() => {
     if (reduce) {
+      current.current = value;
       setShown(value);
-      from.current = value;
       return;
     }
-    const start = from.current;
-    from.current = value;
+    const start = current.current;
     if (start === value) return;
     const controls = animate(start, value, {
       duration: start === 0 ? 0.7 : 0.45,
       ease: EASE_OUT,
-      onUpdate: (v) => setShown(Math.round(v)),
+      onUpdate: (v) => {
+        current.current = v;
+        setShown(Math.round(v));
+      },
     });
     return () => controls.stop();
   }, [value, reduce]);
