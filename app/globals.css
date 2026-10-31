@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Campus Speedrun — dark slate system (see DESIGN.md).
+   Ground slate-950, surfaces slate-900/800, text slate-100/300/400, borders slate-800/700.
+   Urgency: CRITICAL red (pulsing), HIGH amber, MEDIUM indigo, LOW slate. */
+@layer base {
+  :root {
+    color-scheme: dark;
+    --bg-ground: #020617; /* slate-950 */
+    --bg-surface: #0f172a; /* slate-900 */
+    --bg-raised: #1e293b; /* slate-800 */
+    --border: #1e293b; /* slate-800 */
+    --border-strong: #334155; /* slate-700 */
+    --text-primary: #f1f5f9; /* slate-100 */
+    --text-secondary: #cbd5e1; /* slate-300 */
+    --text-muted: #94a3b8; /* slate-400 */
+    --focus: #818cf8; /* indigo-400 */
+    --selection: rgba(129, 140, 248, 0.35); /* indigo-400 @ 35% */
+  }
+
+  html {
+    background-color: var(--bg-ground);
+    scrollbar-color: var(--border-strong) var(--bg-ground);
+  }
+
+  body {
+    background-color: var(--bg-ground);
+    color: var(--text-primary);
+    font-family: var(--font-sans), "Plus Jakarta Sans", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background-color: var(--selection);
+    color: var(--text-primary);
+  }
+
+  /* Data (IDs, scores, timers) always lines up column to column. */
+  .font-mono,
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  * {
+    caret-color: var(--focus);
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--bg-ground);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+  }
+
+  /* Visible focus ring on every keyboard-focusable control */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  select option {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+  }
+}
+
+@layer components {
+  /* Surface cards */
+  .cs-card {
+    @apply bg-slate-900 border border-slate-800 rounded-3xl shadow-xl shadow-black/30;
+  }
+  .cs-inset {
+    @apply bg-slate-950/60 border border-slate-800 rounded-2xl;
+  }
+
+  /* Form controls */
+  .cs-input {
+    @apply w-full px-4 py-2.5 bg-slate-950 border border-slate-600 text-slate-100 text-sm rounded-xl
+      placeholder:text-slate-400 transition-colors
+      focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/40
+      aria-[invalid=true]:border-red-500 aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-red-500/30;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-slate-100 text-slate-950 font-semibold
+      text-xs tracking-wider uppercase transition-colors hover:bg-white
+      disabled:bg-slate-400 disabled:text-slate-950 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-slate-700 text-slate-200 font-semibold
+      text-xs tracking-wide transition-colors hover:border-slate-500 hover:bg-slate-800 hover:text-white
+      disabled:border-slate-800 disabled:text-slate-400 disabled:bg-transparent disabled:cursor-not-allowed;
+  }
+  /* Positive terminal action (Resolve). */
+  .btn-resolve {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full bg-emerald-700 text-white text-xs font-semibold
+      transition-colors hover:bg-emerald-600
+      disabled:bg-emerald-950 disabled:text-emerald-200 disabled:cursor-not-allowed;
+  }
+
+  /* Small uppercase label role (section labels, field captions). Sans, not mono:
+     mono is reserved for data — ticket IDs, scores, timestamps, hashtags. */
+  .cs-label {
+    @apply text-xs font-semibold uppercase tracking-wider;
+  }
+
+  /* Neutral pill */
+  .pill-tag {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs bg-slate-800 border border-slate-700 text-slate-300;
+  }
+
+  /* Spec 08 §4 hashtag pill */
+  .hashtag-pill {
+    @apply inline-flex items-center max-w-full px-2.5 py-0.5 rounded-full text-xs font-mono bg-indigo-950 text-indigo-300 border border-indigo-800 [overflow-wrap:anywhere];
+  }
+
+  /* Alerts */
+  .alert-error {
+    @apply p-3.5 bg-red-950/50 border border-red-800 text-red-200 text-xs rounded-xl flex items-start gap-2;
+  }
+  .alert-success {
+    @apply p-3.5 bg-emerald-950/50 border border-emerald-800 text-emerald-200 text-xs rounded-xl flex items-start gap-2;
+  }
+  .alert-warn {
+    @apply p-3.5 bg-amber-950/50 border border-amber-800 text-amber-100 text-xs rounded-xl flex items-start gap-2;
+  }
+}
+
+/* Reduced motion: stop decorative loops and spatial movement, but keep
+   colour/opacity state changes and a visible (slowed) loading spinner so
+   "in progress" feedback never disappears. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse,
+  .animate-ping {
+    animation: none !important;
+  }
+
+  .animate-spin {
+    animation-duration: 2.5s !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-property: color, background-color, border-color, opacity, outline-color !important;
+  }
+}
