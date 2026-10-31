@@ -19,11 +19,11 @@ Next.js 15/16 (App Router) + TypeScript + Tailwind CSS + Supabase (PostgreSQL, S
 
 ## Product Purpose
 
-Campus Speedrun is an AI-powered academic and infrastructure issue triage engine designed to eliminate bureaucratic stagnation, remove student reporting anxiety, and rapidly resolve campus hazards. Success means issues are autonomously classified and summarized by Gemini AI, scored and prioritized by objective risk rather than chronological filing time, and driven to resolution through a strict 3-tier, 72-hour auto-escalating accountability chain.
+Campluse is an AI-powered academic and infrastructure issue triage engine designed to eliminate bureaucratic stagnation, remove student reporting anxiety, and rapidly resolve campus hazards. Success means issues are autonomously classified and summarized by Gemini AI, scored and prioritized by objective risk rather than chronological filing time, and driven to resolution through a strict 3-tier, 72-hour auto-escalating accountability chain.
 
 ## Positioning
 
-Unlike traditional campus portals that bury urgent physical hazards in chronological queues, require tedious departmental identification by students, and leak student identities to grading faculty, Campus Speedrun guarantees:
+Unlike traditional campus portals that bury urgent physical hazards in chronological queues, require tedious departmental identification by students, and leak student identities to grading faculty, Campluse guarantees:
 1. Zero-PII anonymity through dual unique identifiers (`CSR-XXXXX` and `REP-XXXXX`).
 2. Instant multimodal AI triage via Gemini 2.5 Flash for summarization, duplicate clustering, priority scoring (0–100), and damage radar detection.
 3. A strict 3-day (72-hour) auto-escalation mechanism across Teachers, Faculty, and Administrators that prevents tickets from lingering unresolved.
@@ -62,7 +62,7 @@ Unlike traditional campus portals that bury urgent physical hazards in chronolog
 
 ## Brand Commitments
 
-- **Product Name:** Campus Speedrun
+- **Product Name:** Campluse
 - **Subtitle / Tagline:** "AI-Powered Academic & Infrastructure Triage Engine"
 - **Visual Tone:** Professional, institutional, high-clarity, and urgent. Dark slate foundation (`bg-slate-950`) with high-contrast functional color-coding for priorities (CRITICAL crimson, HIGH amber, MEDIUM indigo, LOW slate).
 - **Terminology:** Consistent terminology across ticket codes (`CSR-XXXXX`), urgency levels (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`), and department tags (`#BTech`, `#Infrastructure`, etc.).

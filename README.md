@@ -1,4 +1,4 @@
-# Campus Speedrun
+# Campluse
 
 **AI-Powered Academic & Infrastructure Triage Engine**
 
@@ -11,7 +11,7 @@ Students report broken lab equipment, electrical hazards, network outages and sa
 - **Tickets stagnate.** Complaints wait in one person's inbox with no deadline and no one above them noticing.
 - **Students don't know who owns a problem.** Is a dead lab PC the B.Tech department's, the MCA department's, or IT's?
 
-## What Campus Speedrun does
+## What Campluse does
 
 | Feature | How it works |
 |---|---|

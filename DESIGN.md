@@ -1,5 +1,5 @@
 ---
-name: Campus Speedrun
+name: Campluse
 description: AI-Powered Academic & Infrastructure Triage Engine — dark slate institutional UI
 colors:
   ground: "#020617"        # slate-950 — page / body background
@@ -51,7 +51,7 @@ rounded:
   3xl: "24px"      # cards
 ---
 
-# Design System: Campus Speedrun (Dark Slate)
+# Design System: Campluse (Dark Slate)
 
 ## Overview
 Professional, institutional and urgent. A flat `slate-950` ground with `slate-900` cards; colour is

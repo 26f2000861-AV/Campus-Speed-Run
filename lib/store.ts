@@ -20,7 +20,7 @@ import { isAuthConfigured } from './server-auth';
 import { calculatePriorityScore } from './gemini';
 
 // ---------------------------------------------------------------------------
-// Campus Speedrun data layer. Every read/write goes through the service-role
+// Campluse data layer. Every read/write goes through the service-role
 // client (RLS bypass, Contract A). There is NO in-memory store and NO fallback
 // data: if Supabase is not configured, callers get a 503.
 // Demo data lives in supabase_seed.sql.
